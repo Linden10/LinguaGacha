@@ -180,6 +180,26 @@ def test_handle_failed_context_force_accepts_after_retry_limit(
     assert calls == [item]
 
 
+def test_handle_failed_context_uses_configured_max_round_for_single_item_retry() -> (
+    None
+):
+    item = create_item("single")
+    context = TaskContext(
+        items=[item],
+        precedings=[],
+        token_threshold=16,
+        retry_count=3,
+    )
+    scheduler = TaskScheduler(
+        Config(max_round=5), {"threshold": {"input_token_limit": 64}}, [item]
+    )
+
+    new_contexts = scheduler.handle_failed_context(context, {})
+
+    assert len(new_contexts) == 1
+    assert new_contexts[0].retry_count == 4
+
+
 def test_create_task_injects_split_retry_and_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

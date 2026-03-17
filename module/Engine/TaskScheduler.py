@@ -29,6 +29,8 @@ class TaskContext:
 
 
 class TaskScheduler(Base):
+    AUTO_SINGLE_TASK_RETRY_LIMIT: int = 3
+
     # 统一维护初次切片时的句末标点，避免翻译和分析各写一套边界规则。
     END_LINE_PUNCTUATION: tuple[str, ...] = (
         ".",
@@ -309,7 +311,10 @@ class TaskScheduler(Base):
                     )
         else:
             item = items[0]
-            if context.retry_count < 3:
+            if (
+                self.config.max_round > 0
+                or context.retry_count < __class__.AUTO_SINGLE_TASK_RETRY_LIMIT
+            ):
                 new_contexts.append(
                     TaskContext(
                         items=[item],
