@@ -264,6 +264,14 @@ class TaskScheduler(Base):
         if not items:
             return []
 
+        # 若 max_round > 0，超过轮次上限时强制接受所有剩余条目。
+        # 轮次 = 拆分次数 + 重试次数之和，0 表示自动（不限制）。
+        max_round = self.config.max_round
+        if max_round > 0 and context.split_count + context.retry_count >= max_round:
+            for item in items:
+                self.force_accept(item)
+            return []
+
         new_contexts: list[TaskContext] = []
 
         if len(items) > 1:

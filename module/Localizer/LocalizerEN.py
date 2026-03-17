@@ -541,6 +541,12 @@ class LocalizerEN(LocalizerZH):
         "<br>"
         "If no reply is received after the timeout, the task will be considered failed"
     )
+    basic_settings_page_max_round_title: str = "Maximum Retry Rounds"
+    basic_settings_page_max_round_content: str = (
+        "Set the maximum retry rounds for failed translation tasks"
+        "<br>"
+        "0 = Auto (recommended), greater than 0 = max retry rounds"
+    )
 
     # 专家设置
     expert_settings_page_preceding_lines_threshold: str = "Preceding Lines Threshold"

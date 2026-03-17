@@ -65,6 +65,7 @@ class BasicSettingsPage(Base, QWidget):
         self.add_widget_project_save_mode(scroll_area_vbox, config, window)
         self.add_widget_output_folder_open_on_finish(scroll_area_vbox, config, window)
         self.add_widget_request_timeout(scroll_area_vbox, config, window)
+        self.add_widget_max_round(scroll_area_vbox, config, window)
 
         # 填充
         scroll_area_vbox.addStretch(1)
@@ -285,6 +286,27 @@ class BasicSettingsPage(Base, QWidget):
         spin_box = SpinBox(card)
         spin_box.setRange(0, 9999999)
         spin_box.setValue(config.request_timeout)
+        spin_box.valueChanged.connect(lambda value: value_changed(spin_box))
+        card.add_right_widget(spin_box)
+        parent.addWidget(card)
+
+    # 最大重试轮次
+    def add_widget_max_round(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        def value_changed(spin_box: SpinBox) -> None:
+            config = Config().load()
+            config.max_round = spin_box.value()
+            config.save()
+
+        card = SettingCard(
+            title=Localizer.get().basic_settings_page_max_round_title,
+            description=Localizer.get().basic_settings_page_max_round_content,
+            parent=self,
+        )
+        spin_box = SpinBox(card)
+        spin_box.setRange(0, 9999999)
+        spin_box.setValue(config.max_round)
         spin_box.valueChanged.connect(lambda value: value_changed(spin_box))
         card.add_right_widget(spin_box)
         parent.addWidget(card)

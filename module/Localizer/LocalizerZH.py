@@ -541,6 +541,12 @@ class LocalizerZH:
         ""
         ""
     )
+    basic_settings_page_max_round_title: str = "最大轮次阈值"
+    basic_settings_page_max_round_content: str = (
+        "设置翻译失败任务的最大重试轮次，0 = 自动（推荐），大于 0 = 最大重试轮次"
+        ""
+        ""
+    )
 
     # 专家设置
     expert_settings_page_preceding_lines_threshold: str = "参考上文行数阈值"
