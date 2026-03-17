@@ -47,6 +47,7 @@ class Config:
     project_fixed_path: str = ""
     output_folder_open_on_finish: bool = False
     request_timeout: int = 120
+    max_round: int = 0
 
     # ExpertSettingsPage
     preceding_lines_threshold: int = 0
