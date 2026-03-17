@@ -311,10 +311,16 @@ class TaskScheduler(Base):
                     )
         else:
             item = items[0]
-            if (
-                self.config.max_round > 0
-                or context.retry_count < __class__.AUTO_SINGLE_TASK_RETRY_LIMIT
-            ):
+            if self.config.max_round > 0:
+                can_retry_single_item = (
+                    context.split_count + context.retry_count < self.config.max_round
+                )
+            else:
+                can_retry_single_item = (
+                    context.retry_count < self.AUTO_SINGLE_TASK_RETRY_LIMIT
+                )
+
+            if can_retry_single_item:
                 new_contexts.append(
                     TaskContext(
                         items=[item],
