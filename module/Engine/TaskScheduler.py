@@ -78,16 +78,16 @@ class TaskScheduler(Base):
         """统一生成初次任务分片，确保翻译和分析共享同一套边界规则。"""
         line_limit = max(8, int(input_token_threshold / 16))
 
-        skip = 0
         line_length = 0
         token_length = 0
         chunk: list[Item] = []
+        # chunk 中第一个元素在 items 中的实际索引，用于正确定位上文搜索起点。
+        chunk_start_idx: int = 0
 
         # 初次大批量切片时定期让出 GIL，避免后台线程把 UI 卡住。
         for i, item in GapTool.iter(enumerate(items)):
             # 初次切片只调度待处理条目，避免不同任务线在入口阶段口径漂移。
             if item.get_status() != Base.ProjectStatus.NONE:
-                skip += 1
                 continue
 
             current_line_length = sum(
@@ -96,7 +96,7 @@ class TaskScheduler(Base):
             current_token_length = item.get_token_count()
 
             if len(chunk) == 0:
-                pass
+                chunk_start_idx = i
             elif (
                 line_length + current_line_length > line_limit
                 or token_length + current_token_length > input_token_threshold
@@ -105,16 +105,15 @@ class TaskScheduler(Base):
                 preceding = cls.generate_preceding_chunk(
                     items=items,
                     chunk=chunk,
-                    start=i,
-                    skip=skip,
+                    chunk_start_idx=chunk_start_idx,
                     preceding_lines_threshold=preceding_lines_threshold,
                 )
                 yield chunk, preceding
 
-                skip = 0
                 chunk = []
                 line_length = 0
                 token_length = 0
+                chunk_start_idx = i
 
             chunk.append(item)
             line_length += current_line_length
@@ -124,8 +123,7 @@ class TaskScheduler(Base):
             preceding = cls.generate_preceding_chunk(
                 items=items,
                 chunk=chunk,
-                start=len(items),
-                skip=skip,
+                chunk_start_idx=chunk_start_idx,
                 preceding_lines_threshold=preceding_lines_threshold,
             )
             yield chunk, preceding
@@ -154,14 +152,16 @@ class TaskScheduler(Base):
         cls,
         items: list[Item],
         chunk: list[Item],
-        start: int,
-        skip: int,
+        chunk_start_idx: int,
         preceding_lines_threshold: int,
     ) -> list[Item]:
-        """统一生成上文上下文，保证翻译初次任务和后续截断都走同一套边界。"""
+        """统一生成上文上下文，保证翻译初次任务和后续截断都走同一套边界。
+        chunk_start_idx 是 chunk[0] 在 items 中的实际索引，用于正确定位搜索起点。
+        已完成（PROCESSED/ERROR）的上文条目同样纳入候选，保留完整对话上下文。
+        """
         result: list[Item] = []
 
-        for i in range(start - skip - len(chunk) - 1, -1, -1):
+        for i in range(chunk_start_idx - 1, -1, -1):
             item = items[i]
 
             if item.get_status() in (

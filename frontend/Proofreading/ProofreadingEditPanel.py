@@ -68,6 +68,7 @@ class ProofreadingEditPanel(QWidget):
     copy_src_requested = Signal(object)
     copy_dst_requested = Signal(object)
     retranslate_requested = Signal(object)
+    retranslate_with_context_requested = Signal(object)
     reset_translation_requested = Signal(object)
     glossary_status_computed = Signal(object)
 
@@ -300,7 +301,7 @@ class ProofreadingEditPanel(QWidget):
     def disconnect_theme_signals(self) -> None:
         try:
             qconfig.themeChanged.disconnect(self.on_theme_changed)
-        except TypeError, RuntimeError:
+        except (TypeError, RuntimeError):
             # Qt 对象销毁或重复断开连接时可能抛异常，可忽略。
             pass
 
@@ -410,6 +411,14 @@ class ProofreadingEditPanel(QWidget):
         )
         action_retranslate.setEnabled(not self.dst_text.isReadOnly())
         menu.addAction(action_retranslate)
+
+        action_retranslate_with_context = Action(
+            ICON_RETRANSLATE,
+            Localizer.get().proofreading_page_retranslate_with_context,
+            triggered=lambda: self.retranslate_with_context_requested.emit(item),
+        )
+        action_retranslate_with_context.setEnabled(not self.dst_text.isReadOnly())
+        menu.addAction(action_retranslate_with_context)
 
         action_reset = Action(
             ICON_RESET_TRANSLATION,

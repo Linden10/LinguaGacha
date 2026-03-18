@@ -275,7 +275,7 @@ class PromptBuilder(Base):
         full_prompt = self.join_prompt_sections(prefix, base, thinking, suffix)
         return full_prompt.replace("{target_language}", target_language)
 
-    # 构造参考上文
+    # 构造参考上文（原文）
     def build_preceding(self, precedings: list[Item]) -> str:
         if not precedings:
             return ""
@@ -289,12 +289,77 @@ class PromptBuilder(Base):
             )
         else:
             return (
-                "Preceding Context:"
+                "context"
                 + "\n"
                 + "\n".join(
                     [item.get_src().strip().replace("\n", "\\n") for item in precedings]
                 )
             )
+
+    # 构造参考上文（译文）
+    def build_preceding_translated(self, precedings: list[Item]) -> str:
+        if not precedings:
+            return ""
+        elif self.is_prompt_ui_zh():
+            return (
+                "参考上文（译文）："
+                + "\n"
+                + "\n".join(
+                    [
+                        item.get_dst().strip().replace("\n", "\\n")
+                        for item in precedings
+                        if item.get_dst().strip()
+                    ]
+                )
+            )
+        else:
+            return (
+                "context (translated)"
+                + "\n"
+                + "\n".join(
+                    [
+                        item.get_dst().strip().replace("\n", "\\n")
+                        for item in precedings
+                        if item.get_dst().strip()
+                    ]
+                )
+            )
+
+    # 根据配置的上文模式构造参考上文，返回提示词字符串列表和日志列表
+    def build_preceding_by_mode(
+        self, precedings: list[Item]
+    ) -> tuple[list[str], list[str]]:
+        """根据 preceding_context_mode 选择使用原文/译文/两者作为参考上文。"""
+        if not precedings:
+            return [], []
+
+        mode = self.config.preceding_context_mode
+
+        parts: list[str] = []
+        console_log: list[str] = []
+
+        if mode == Config.PrecedingContextMode.TRANSLATED:
+            result = self.build_preceding_translated(precedings)
+            if result:
+                parts.append(result)
+                console_log.append(result)
+        elif mode == Config.PrecedingContextMode.BOTH:
+            result = self.build_preceding(precedings)
+            if result:
+                parts.append(result)
+                console_log.append(result)
+            result = self.build_preceding_translated(precedings)
+            if result:
+                parts.append(result)
+                console_log.append(result)
+        else:
+            # ORIGINAL (default)
+            result = self.build_preceding(precedings)
+            if result:
+                parts.append(result)
+                console_log.append(result)
+
+        return parts, console_log
 
     # 构造术语表
     def build_glossary(self, srcs: list[str]) -> str:
@@ -410,10 +475,9 @@ class PromptBuilder(Base):
         user_parts: list[str] = []
 
         # 参考上文
-        result = self.build_preceding(precedings)
-        if result != "":
-            user_parts.append(result)
-            console_log.append(result)
+        preceding_parts, preceding_log = self.build_preceding_by_mode(precedings)
+        user_parts.extend(preceding_parts)
+        console_log.extend(preceding_log)
 
         # 术语表
         glossary_enable = (

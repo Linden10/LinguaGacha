@@ -24,6 +24,11 @@ class Config:
         SOURCE = "SOURCE"
         FIXED = "FIXED"
 
+    class PrecedingContextMode(StrEnum):
+        ORIGINAL = "ORIGINAL"  # 仅用原文作上文
+        TRANSLATED = "TRANSLATED"  # 仅用译文作上文
+        BOTH = "BOTH"  # 原文与译文同时作上文
+
     # Application
     theme: str = Theme.LIGHT
     app_language: BaseLanguage.Enum = BaseLanguage.Enum.ZH
@@ -51,6 +56,7 @@ class Config:
 
     # ExpertSettingsPage
     preceding_lines_threshold: int = 0
+    preceding_context_mode: str = PrecedingContextMode.ORIGINAL
     clean_ruby: bool = False
     deduplication_in_trans: bool = True
     deduplication_in_bilingual: bool = True
@@ -148,6 +154,7 @@ class Config:
     def reset_expert_settings(self) -> None:
         # ExpertSettingsPage
         self.preceding_lines_threshold: int = 0
+        self.preceding_context_mode: str = Config.PrecedingContextMode.ORIGINAL
         self.clean_ruby: bool = True
         self.deduplication_in_trans: bool = True
         self.deduplication_in_bilingual: bool = True

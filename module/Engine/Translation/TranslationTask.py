@@ -552,7 +552,10 @@ class TranslationTask(Base):
 
     @staticmethod
     def translate_single(
-        item: Item, config: Config, callback: Callable[[Item, bool], None]
+        item: Item,
+        config: Config,
+        callback: Callable[[Item, bool], None],
+        precedings: list[Item] | None = None,
     ) -> None:
         """
         单条翻译的简化入口，复用 TranslationTask 的完整翻译流程。
@@ -564,6 +567,7 @@ class TranslationTask(Base):
             item: 待翻译的 Item 对象
             config: 翻译配置
             callback: 翻译完成后的回调函数，签名为 (item, success) -> None
+            precedings: 可选的上文条目列表，传入时作为上下文注入到翻译任务
         """
 
         def task() -> None:
@@ -579,7 +583,7 @@ class TranslationTask(Base):
                     config=config,
                     model=model,
                     items=[item],
-                    precedings=[],
+                    precedings=precedings or [],
                     skip_response_check=True,
                 )
 

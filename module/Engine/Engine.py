@@ -79,7 +79,11 @@ class Engine:
         return count
 
     def translate_single_item(
-        self, item: Item, config: Config, callback: Callable[[Item, bool], None]
+        self,
+        item: Item,
+        config: Config,
+        callback: Callable[[Item, bool], None],
+        precedings: list[Item] | None = None,
     ) -> None:
         """
         对单个条目执行翻译，通过后台线程 + 回调异步返回结果。
@@ -89,8 +93,9 @@ class Engine:
             item: 待翻译的 Item 对象
             config: 翻译配置
             callback: 翻译完成后的回调函数，签名为 (item, success) -> None
+            precedings: 可选的上文条目列表，传入时作为上下文注入到翻译任务
         """
         # 延迟导入避免循环依赖
         from module.Engine.Translation.TranslationTask import TranslationTask
 
-        TranslationTask.translate_single(item, config, callback)
+        TranslationTask.translate_single(item, config, callback, precedings)

@@ -400,8 +400,7 @@ def test_generate_preceding_chunk_obeys_punctuation_and_threshold() -> None:
     preceding = TaskScheduler.generate_preceding_chunk(
         items=items,
         chunk=[items[3]],
-        start=4,
-        skip=0,
+        chunk_start_idx=3,
         preceding_lines_threshold=2,
     )
 
@@ -419,8 +418,7 @@ def test_generate_preceding_chunk_skips_excluded_and_empty_items() -> None:
     preceding = TaskScheduler.generate_preceding_chunk(
         items=items,
         chunk=[items[3]],
-        start=4,
-        skip=0,
+        chunk_start_idx=3,
         preceding_lines_threshold=2,
     )
 
@@ -438,8 +436,7 @@ def test_generate_preceding_chunk_skips_rule_and_language_skipped() -> None:
     preceding = TaskScheduler.generate_preceding_chunk(
         items=items,
         chunk=[items[3]],
-        start=4,
-        skip=0,
+        chunk_start_idx=3,
         preceding_lines_threshold=2,
     )
 
@@ -456,8 +453,7 @@ def test_generate_preceding_chunk_stops_when_sentence_has_no_end_punctuation() -
     preceding = TaskScheduler.generate_preceding_chunk(
         items=items,
         chunk=[items[2]],
-        start=3,
-        skip=0,
+        chunk_start_idx=2,
         preceding_lines_threshold=2,
     )
 
@@ -473,8 +469,7 @@ def test_generate_preceding_chunk_stops_when_file_changes() -> None:
     preceding = TaskScheduler.generate_preceding_chunk(
         items=items,
         chunk=[items[1]],
-        start=2,
-        skip=0,
+        chunk_start_idx=1,
         preceding_lines_threshold=2,
     )
 
@@ -542,3 +537,50 @@ def test_build_initial_analysis_contexts_skips_invalid_and_orphan_seed_items(
     assert len(contexts) == 1
     assert contexts[0].file_path == "a.txt"
     assert [item.item_id for item in contexts[0].items] == [1]
+
+
+def test_generate_preceding_chunk_includes_completed_prior_lines() -> None:
+    """已完成（PROCESSED）的上文条目应当被纳入参考上文。"""
+    items = [
+        create_item("done1.", Base.ProjectStatus.PROCESSED, file_path="a.txt"),
+        create_item("done2.", Base.ProjectStatus.PROCESSED, file_path="a.txt"),
+        create_item("target", file_path="a.txt"),
+    ]
+
+    preceding = TaskScheduler.generate_preceding_chunk(
+        items=items,
+        chunk=[items[2]],
+        chunk_start_idx=2,
+        preceding_lines_threshold=3,
+    )
+
+    assert [item.get_src() for item in preceding] == ["done1.", "done2."]
+
+
+def test_generate_item_chunks_preceding_includes_completed_lines() -> None:
+    """初次切片时，位于当前 chunk 之前的已完成条目应出现在 preceding 中。"""
+    items = [
+        create_item("ctx1.", Base.ProjectStatus.PROCESSED, file_path="a.txt"),
+        create_item("ctx2.", Base.ProjectStatus.PROCESSED, file_path="a.txt"),
+        create_item("ctx3.", Base.ProjectStatus.PROCESSED, file_path="a.txt"),
+        create_item("ctx4.", Base.ProjectStatus.PROCESSED, file_path="a.txt"),
+        create_item("target", file_path="a.txt"),
+    ]
+
+    chunks, preceding_chunks = TaskScheduler.generate_item_chunks(
+        items=items,
+        input_token_threshold=1000,
+        preceding_lines_threshold=4,
+    )
+
+    # 唯一 chunk 应只含 "target"
+    assert len(chunks) == 1
+    assert chunks[0][0].get_src() == "target"
+    # preceding 应包含全部 4 条已完成条目
+    assert len(preceding_chunks[0]) == 4
+    assert [item.get_src() for item in preceding_chunks[0]] == [
+        "ctx1.",
+        "ctx2.",
+        "ctx3.",
+        "ctx4.",
+    ]
