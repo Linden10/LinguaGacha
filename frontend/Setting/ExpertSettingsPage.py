@@ -49,6 +49,7 @@ class ExpertSettingsPage(Base, QWidget):
         # 添加控件
         self.add_widget_response_check_settings(scroll_area_vbox, config, window)
         self.add_widget_preceding_lines_threshold(scroll_area_vbox, config, window)
+        self.add_widget_preceding_context_mode(scroll_area_vbox, config, window)
         self.add_widget_clean_ruby(scroll_area_vbox, config, window)
         self.add_widget_deduplication_in_trans(scroll_area_vbox, config, window)
         self.add_widget_deduplication_in_bilingual(scroll_area_vbox, config, window)
@@ -170,6 +171,89 @@ class ExpertSettingsPage(Base, QWidget):
         spin_box.setValue(config.preceding_lines_threshold)
         spin_box.valueChanged.connect(lambda value: value_changed(spin_box))
         card.add_right_widget(spin_box)
+        parent.addWidget(card)
+
+    # 参考上文内容模式
+    def add_widget_preceding_context_mode(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        menu = RoundMenu(parent=window)
+
+        action_original = Action(
+            Localizer.get().expert_settings_page_preceding_context_mode_original, self
+        )
+        action_original.setCheckable(True)
+        menu.addAction(action_original)
+
+        action_translated = Action(
+            Localizer.get().expert_settings_page_preceding_context_mode_translated, self
+        )
+        action_translated.setCheckable(True)
+        menu.addAction(action_translated)
+
+        action_both = Action(
+            Localizer.get().expert_settings_page_preceding_context_mode_both, self
+        )
+        action_both.setCheckable(True)
+        menu.addAction(action_both)
+
+        def sync_action_checked(config: Config) -> None:
+            mode = config.preceding_context_mode
+            action_original.setChecked(mode == Config.PrecedingContextMode.ORIGINAL)
+            action_translated.setChecked(mode == Config.PrecedingContextMode.TRANSLATED)
+            action_both.setChecked(mode == Config.PrecedingContextMode.BOTH)
+            action_original.setIcon(
+                BaseIcon.CIRCLE_CHECK
+                if mode == Config.PrecedingContextMode.ORIGINAL
+                else BaseIcon.CIRCLE
+            )
+            action_translated.setIcon(
+                BaseIcon.CIRCLE_CHECK
+                if mode == Config.PrecedingContextMode.TRANSLATED
+                else BaseIcon.CIRCLE
+            )
+            action_both.setIcon(
+                BaseIcon.CIRCLE_CHECK
+                if mode == Config.PrecedingContextMode.BOTH
+                else BaseIcon.CIRCLE
+            )
+
+        def on_mode_selected(mode: str) -> None:
+            config = Config().load()
+            config.preceding_context_mode = mode
+            config.save()
+            sync_action_checked(config)
+
+        def before_show_menu() -> None:
+            config = Config().load()
+            sync_action_checked(config)
+
+        action_original.triggered.connect(
+            lambda checked: on_mode_selected(Config.PrecedingContextMode.ORIGINAL)
+        )
+        action_translated.triggered.connect(
+            lambda checked: on_mode_selected(Config.PrecedingContextMode.TRANSLATED)
+        )
+        action_both.triggered.connect(
+            lambda checked: on_mode_selected(Config.PrecedingContextMode.BOTH)
+        )
+
+        card = SettingCard(
+            title=Localizer.get().expert_settings_page_preceding_context_mode,
+            description=Localizer.get().expert_settings_page_preceding_context_mode_desc,
+            parent=self,
+        )
+        menu_button = PushButton(
+            Localizer.get().expert_settings_page_preceding_context_mode_button
+        )
+        menu_button.clicked.connect(
+            lambda checked=False: self.show_menu_for_button(
+                menu_button, menu, before_show_menu
+            )
+        )
+        card.add_right_widget(menu_button)
+        sync_action_checked(config)
+
         parent.addWidget(card)
 
     # 清理原文中的注音文本

@@ -47,6 +47,9 @@ class ProofreadingTableWidget(TableView):
     # 信号定义：对外仅暴露必要交互。批量操作覆盖“单选=批量(1)”场景，避免信号语义重复。
     itemSelectionChanged = Signal()
     batch_retranslate_clicked = Signal(list)  # (items) 批量重新翻译
+    batch_retranslate_with_context_clicked = Signal(
+        list
+    )  # (items) 携带上文批量重新翻译
     batch_reset_translation_clicked = Signal(list)  # (items) 批量重置翻译
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -280,6 +283,15 @@ class ProofreadingTableWidget(TableView):
                 Localizer.get().proofreading_page_batch_retranslate,
                 triggered=lambda checked: self.batch_retranslate_clicked.emit(
                     selected_items
+                ),
+            )
+        )
+        menu.addAction(
+            Action(
+                self.ICON_BATCH_RETRANSLATE,
+                Localizer.get().proofreading_page_batch_retranslate_with_context,
+                triggered=lambda checked: (
+                    self.batch_retranslate_with_context_clicked.emit(selected_items)
                 ),
             )
         )

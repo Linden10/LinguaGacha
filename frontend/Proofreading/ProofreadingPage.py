@@ -330,6 +330,9 @@ class ProofreadingPage(Base, QWidget):
         self.table_widget.batch_retranslate_clicked.connect(
             self.on_batch_retranslate_clicked
         )
+        self.table_widget.batch_retranslate_with_context_clicked.connect(
+            self.on_batch_retranslate_with_context_clicked
+        )
         self.table_widget.batch_reset_translation_clicked.connect(
             self.on_batch_reset_translation_clicked
         )
@@ -341,6 +344,9 @@ class ProofreadingPage(Base, QWidget):
         self.edit_panel.copy_src_requested.connect(self.on_copy_src_clicked)
         self.edit_panel.copy_dst_requested.connect(self.on_copy_dst_clicked)
         self.edit_panel.retranslate_requested.connect(self.on_retranslate_clicked)
+        self.edit_panel.retranslate_with_context_requested.connect(
+            self.on_retranslate_with_context_clicked
+        )
         self.edit_panel.reset_translation_requested.connect(
             self.on_reset_translation_clicked
         )
@@ -1946,6 +1952,146 @@ class ProofreadingPage(Base, QWidget):
             self.progress_finished.emit()
 
             # 显示结果
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.SUCCESS
+                    if fail_count == 0
+                    else Base.ToastType.WARNING,
+                    "message": Localizer.get()
+                    .task_batch_translation_success.replace(
+                        "{SUCCESS}", str(success_count)
+                    )
+                    .replace("{FAILED}", str(fail_count)),
+                },
+            )
+
+        threading.Thread(target=batch_translate_task, daemon=True).start()
+
+    def on_retranslate_with_context_clicked(self, item: Item) -> None:
+        """携带上文重新翻译按钮点击 - 单条翻译携带上文"""
+        if self.is_readonly or not self.config:
+            return
+
+        message_box = MessageBox(
+            Localizer.get().confirm,
+            Localizer.get().proofreading_page_retranslate_with_context_confirm,
+            self.main_window,
+        )
+        message_box.yesButton.setText(Localizer.get().confirm)
+        message_box.cancelButton.setText(Localizer.get().cancel)
+
+        if not message_box.exec():
+            return
+
+        self.do_batch_retranslate_with_context([item])
+
+    def on_batch_retranslate_with_context_clicked(self, items: list[Item]) -> None:
+        """批量携带上文重新翻译按钮点击"""
+        if self.is_readonly or not self.config or not items:
+            return
+
+        count = len(items)
+        message_box = MessageBox(
+            Localizer.get().confirm,
+            Localizer.get().proofreading_page_batch_retranslate_with_context_confirm.replace(
+                "{COUNT}", str(count)
+            ),
+            self.main_window,
+        )
+        message_box.yesButton.setText(Localizer.get().confirm)
+        message_box.cancelButton.setText(Localizer.get().cancel)
+
+        if not message_box.exec():
+            return
+
+        self.do_batch_retranslate_with_context(items)
+
+    def gather_preceding_items(self, item: Item, config: Config) -> list[Item]:
+        """从工程数据中收集 item 之前的上文条目，遵守行数阈值与文件边界规则。"""
+        from module.Engine.TaskScheduler import TaskScheduler
+
+        threshold = config.preceding_lines_threshold
+        if threshold <= 0:
+            return []
+
+        all_items = DataManager.get().get_all_items()
+
+        # 找到目标 item 在全局列表中的位置
+        target_idx = -1
+        for idx, candidate in enumerate(all_items):
+            if candidate is item:
+                target_idx = idx
+                break
+
+        if target_idx <= 0:
+            return []
+
+        # 复用 TaskScheduler 的上文逻辑（文件边界 + 标点 + 阈值）
+        return TaskScheduler.generate_preceding_chunk(
+            items=all_items,
+            chunk=[item],
+            chunk_start_idx=target_idx,
+            preceding_lines_threshold=threshold,
+        )
+
+    def do_batch_retranslate_with_context(self, items: list[Item]) -> None:
+        """执行携带上文的批量翻译（单条和多条统一入口）"""
+        count = len(items)
+        config = Config().load()
+
+        self.progress_show(
+            Localizer.get()
+            .task_batch_translation_progress.replace("{CURRENT}", "1")
+            .replace("{TOTAL}", str(count)),
+            1,
+            count,
+        )
+
+        def batch_translate_task() -> None:
+            success_count = 0
+            fail_count = 0
+            total = len(items)
+
+            for idx, item in enumerate(items):
+                current = idx + 1
+                self.progress_updated.emit(
+                    Localizer.get()
+                    .task_batch_translation_progress.replace("{CURRENT}", str(current))
+                    .replace("{TOTAL}", str(total)),
+                    current,
+                    total,
+                )
+
+                # 重置状态
+                item.set_status(Base.ProjectStatus.NONE)
+                item.set_retry_count(0)
+
+                # 收集上文上下文
+                precedings = self.gather_preceding_items(item, config)
+
+                complete_event = threading.Event()
+                result_container = {"success": False}
+
+                def callback(i: Item, s: bool) -> None:
+                    result_container["success"] = s
+                    self.translate_done.emit(i, s)
+                    complete_event.set()
+
+                Engine.get().translate_single_item(
+                    item=item, config=config, callback=callback, precedings=precedings
+                )
+
+                complete_event.wait()
+
+                if result_container["success"]:
+                    success_count += 1
+                else:
+                    fail_count += 1
+                    item.set_status(Base.ProjectStatus.ERROR)
+
+            self.progress_finished.emit()
+
             self.emit(
                 Base.Event.TOAST,
                 {

@@ -281,7 +281,7 @@ class TestPromptBuilder:
 
         assert zh_text.startswith("参考上文：")
         assert "line1\\nline2" in zh_text
-        assert en_text.startswith("Preceding Context:")
+        assert en_text.startswith("context")
 
     def test_generate_prompt_includes_glossary_and_control_samples(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1064,3 +1064,79 @@ class TestPromptBuilder:
         assert result.startswith("Control Characters Samples:\n")
         assert "<a>" in result
         assert "<b>" in result
+
+    def test_build_preceding_by_mode_original_uses_src(self) -> None:
+        """ORIGINAL 模式应只输出原文上下文块。"""
+        Localizer.set_app_language(BaseLanguage.Enum.EN)
+        item = Item(src="Hello world.")
+        item.set_dst("你好世界。")
+
+        config = Config(
+            target_language=BaseLanguage.Enum.ZH,
+            preceding_context_mode=Config.PrecedingContextMode.ORIGINAL,
+        )
+        builder = PromptBuilder(
+            config=config, quality_snapshot=cast(Any, FakeQualitySnapshot())
+        )
+
+        parts, log = builder.build_preceding_by_mode([item])
+
+        assert len(parts) == 1
+        assert parts[0].startswith("context")
+        assert "Hello world." in parts[0]
+        assert "你好世界" not in parts[0]
+
+    def test_build_preceding_by_mode_translated_uses_dst(self) -> None:
+        """TRANSLATED 模式应只输出译文上下文块。"""
+        Localizer.set_app_language(BaseLanguage.Enum.EN)
+        item = Item(src="Hello world.")
+        item.set_dst("你好世界。")
+
+        config = Config(
+            target_language=BaseLanguage.Enum.ZH,
+            preceding_context_mode=Config.PrecedingContextMode.TRANSLATED,
+        )
+        builder = PromptBuilder(
+            config=config, quality_snapshot=cast(Any, FakeQualitySnapshot())
+        )
+
+        parts, log = builder.build_preceding_by_mode([item])
+
+        assert len(parts) == 1
+        assert "context (translated)" in parts[0]
+        assert "你好世界" in parts[0]
+        assert "Hello world." not in parts[0]
+
+    def test_build_preceding_by_mode_both_outputs_two_sections(self) -> None:
+        """BOTH 模式应同时输出原文和译文两个上下文块。"""
+        Localizer.set_app_language(BaseLanguage.Enum.EN)
+        item = Item(src="Hello world.")
+        item.set_dst("你好世界。")
+
+        config = Config(
+            target_language=BaseLanguage.Enum.ZH,
+            preceding_context_mode=Config.PrecedingContextMode.BOTH,
+        )
+        builder = PromptBuilder(
+            config=config, quality_snapshot=cast(Any, FakeQualitySnapshot())
+        )
+
+        parts, log = builder.build_preceding_by_mode([item])
+
+        assert len(parts) == 2
+        assert parts[0].startswith("context")
+        assert "Hello world." in parts[0]
+        assert "context (translated)" in parts[1]
+        assert "你好世界" in parts[1]
+
+    def test_build_preceding_by_mode_returns_empty_for_no_precedings(self) -> None:
+        config = Config(
+            target_language=BaseLanguage.Enum.ZH,
+            preceding_context_mode=Config.PrecedingContextMode.BOTH,
+        )
+        builder = PromptBuilder(
+            config=config, quality_snapshot=cast(Any, FakeQualitySnapshot())
+        )
+        parts, log = builder.build_preceding_by_mode([])
+        assert parts == []
+        assert log == []
