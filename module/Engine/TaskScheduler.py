@@ -29,6 +29,8 @@ class TaskContext:
 
 
 class TaskScheduler(Base):
+    AUTO_SINGLE_TASK_RETRY_LIMIT: int = 3
+
     # 统一维护初次切片时的句末标点，避免翻译和分析各写一套边界规则。
     END_LINE_PUNCTUATION: tuple[str, ...] = (
         ".",
@@ -264,6 +266,14 @@ class TaskScheduler(Base):
         if not items:
             return []
 
+        # 若 max_round > 0，超过轮次上限时强制接受所有剩余条目。
+        # 轮次 = 拆分次数 + 重试次数之和，0 表示自动（不限制）。
+        max_round = self.config.max_round
+        if max_round > 0 and context.split_count + context.retry_count >= max_round:
+            for item in items:
+                self.force_accept(item)
+            return []
+
         new_contexts: list[TaskContext] = []
 
         if len(items) > 1:
@@ -301,7 +311,16 @@ class TaskScheduler(Base):
                     )
         else:
             item = items[0]
-            if context.retry_count < 3:
+            if self.config.max_round > 0:
+                can_retry_single_item = (
+                    context.split_count + context.retry_count < self.config.max_round
+                )
+            else:
+                can_retry_single_item = (
+                    context.retry_count < self.AUTO_SINGLE_TASK_RETRY_LIMIT
+                )
+
+            if can_retry_single_item:
                 new_contexts.append(
                     TaskContext(
                         items=[item],
