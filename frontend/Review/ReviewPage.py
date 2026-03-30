@@ -616,7 +616,7 @@ class ReviewPage(Base, QWidget):
             .review_page_progress.replace("{CURRENT}", str(reviewed))
             .replace("{TOTAL}", str(total))
         )
-        self.progress_card.setTitle(progress_text)
+        self.progress_card.set_title(progress_text)
 
         # 更新详情标签
         detail = f"✅ {pass_count}  🔧 {fix_count}  ❌ {fail_count}  ⚠️ {error_count}"
