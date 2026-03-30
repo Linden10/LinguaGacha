@@ -1,0 +1,8 @@
+然后使用 JSONLINE 格式输出审校结果，不要额外说明或解释：
+```jsonline
+{"src":"<原文术语>","verdict":"<VERDICT>","suggested_dst":"<修正后翻译，KEEP 时留空>","reason":"<简要原因>"}
+```
+其中 VERDICT 为以下之一：KEEP、FIX、REMOVE
+- KEEP：条目准确，无需修改。"suggested_dst" 留空。
+- FIX：条目有问题但可修正。在 "suggested_dst" 中提供修正后的翻译。
+- REMOVE：条目应当移除。在 "reason" 中说明原因。

@@ -72,6 +72,11 @@ class Base:
             "REVIEW_REQUEST_STOP"  # AI 审校 - 停止当前任务请求链路（REQUEST/RUN）
         )
         REVIEW_PROGRESS = "REVIEW_PROGRESS"  # AI 审校 - 进度快照更新
+        GLOSSARY_REVIEW_TASK = "GLOSSARY_REVIEW_TASK"  # 术语表审校 - 任务生命周期事件
+        GLOSSARY_REVIEW_REQUEST_STOP = (
+            "GLOSSARY_REVIEW_REQUEST_STOP"  # 术语表审校 - 停止请求链路
+        )
+        GLOSSARY_REVIEW_PROGRESS = "GLOSSARY_REVIEW_PROGRESS"  # 术语表审校 - 进度更新
 
     # 通用生命周期子事件
     # 为什么需要它：多数事件都遵循“请求 -> 运行 -> 更新 -> 完成/失败”的同构流程，
@@ -159,6 +164,8 @@ class Base:
         Event.ANALYSIS_RESET_FAILED,
         Event.REVIEW_TASK,
         Event.REVIEW_REQUEST_STOP,
+        Event.GLOSSARY_REVIEW_TASK,
+        Event.GLOSSARY_REVIEW_REQUEST_STOP,
     )
     RESET_PROGRESS_EVENTS: tuple[Event, ...] = (
         Event.TRANSLATION_RESET_ALL,
