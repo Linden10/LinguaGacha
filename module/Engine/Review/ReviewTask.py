@@ -116,8 +116,8 @@ class ReviewTask:
         # 替换语言占位符
         from base.BaseLanguage import BaseLanguage
 
-        source_name = BaseLanguage.get_name_by_enum(self.config.source_language)
-        target_name = BaseLanguage.get_name_by_enum(self.config.target_language)
+        source_name = BaseLanguage.get_name_en(self.config.source_language)
+        target_name = BaseLanguage.get_name_en(self.config.target_language)
         system_prompt = system_prompt.replace("{source_language}", source_name)
         system_prompt = system_prompt.replace("{target_language}", target_name)
 

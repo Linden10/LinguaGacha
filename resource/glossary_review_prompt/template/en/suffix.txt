@@ -1,0 +1,8 @@
+Then use JSONLINE to output review results, without extra explanation or clarification:
+```jsonline
+{"src":"<Source Term>","verdict":"<VERDICT>","suggested_dst":"<Corrected Translation or empty if KEEP>","reason":"<Brief reason>"}
+```
+Where VERDICT is one of: KEEP, FIX, REMOVE
+- KEEP: Entry is accurate, no changes needed. Leave "suggested_dst" empty.
+- FIX: Entry has issues but can be corrected. Provide the corrected translation in "suggested_dst".
+- REMOVE: Entry should be removed. Explain why in "reason".

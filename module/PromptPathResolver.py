@@ -13,6 +13,7 @@ class PromptPathResolver:
         TRANSLATION = "translation"
         ANALYSIS = "analysis"
         REVIEW = "review"
+        GLOSSARY_REVIEW = "glossary_review"
 
     class PresetSource(StrEnum):
         BUILTIN = "builtin"

@@ -47,6 +47,10 @@ class Engine:
 
         self.review = ReviewEngine()
 
+        from module.Engine.Review.GlossaryReviewEngine import GlossaryReviewEngine
+
+        self.glossary_review = GlossaryReviewEngine()
+
     def get_status(self) -> Base.TaskStatus:
         with self.lock:
             return self.status

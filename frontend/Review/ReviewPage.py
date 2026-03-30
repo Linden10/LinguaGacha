@@ -380,6 +380,11 @@ class ReviewPage(Base, QWidget):
         self.capture_window_edit.setMinimumWidth(200)
         self.capture_window_edit.setText(config.review_capture_window)
         self.capture_window_edit.editingFinished.connect(self.on_capture_window_changed)
+        self.capture_window_select_button = PushButton(
+            Localizer.get().review_page_capture_window_select, window_card
+        )
+        self.capture_window_select_button.clicked.connect(self.on_select_window_clicked)
+        window_card.add_right_widget(self.capture_window_select_button)
         window_card.add_right_widget(self.capture_window_edit)
         parent.addWidget(window_card)
         self.capture_window_card = window_card
@@ -616,7 +621,7 @@ class ReviewPage(Base, QWidget):
             .review_page_progress.replace("{CURRENT}", str(reviewed))
             .replace("{TOTAL}", str(total))
         )
-        self.progress_card.setTitle(progress_text)
+        self.progress_card.set_title(progress_text)
 
         # 更新详情标签
         detail = f"✅ {pass_count}  🔧 {fix_count}  ❌ {fail_count}  ⚠️ {error_count}"
@@ -727,6 +732,48 @@ class ReviewPage(Base, QWidget):
         config = Config().load()
         config.review_capture_window = self.capture_window_edit.text().strip()
         config.save()
+
+    def on_select_window_clicked(self) -> None:
+        """弹出对话框列出当前可见窗口，用户选择后填充窗口标题。"""
+        from module.GameCapture.GameCapture import GameCapture
+
+        windows = GameCapture.list_windows()
+        if not windows:
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().review_page_capture_window_none,
+                },
+            )
+            return
+
+        dialog = MessageBox(
+            Localizer.get().review_page_capture_window_select,
+            "",
+            self.window_ref,
+        )
+        dialog.yesButton.setText(Localizer.get().confirm)
+        dialog.cancelButton.setText(Localizer.get().cancel)
+
+        window_list = ListWidget(dialog)
+        window_list.setMinimumHeight(300)
+        for title, pid in windows:
+            window_list.addItem(f"{title}  (PID: {pid})")
+        window_list.setCurrentRow(0)
+
+        dialog.textLayout.addWidget(window_list)
+
+        if not dialog.exec():
+            return
+
+        row = window_list.currentRow()
+        if row < 0 or row >= len(windows):
+            return
+
+        selected_title = windows[row][0]
+        self.capture_window_edit.setText(selected_title)
+        self.on_capture_window_changed()
 
     def on_capture_hotkey_changed(self) -> None:
         """热键变更（文本编辑完成或键盘捕获时统一触发）。"""

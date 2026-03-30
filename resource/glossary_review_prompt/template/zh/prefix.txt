@@ -1,0 +1,1 @@
+任务目标是审校用于 {source_language} 到 {target_language} 翻译的术语表条目的准确性和质量：

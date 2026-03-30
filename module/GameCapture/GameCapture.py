@@ -49,6 +49,119 @@ class GameCapture:
         # shutil.which 处理 PATH 查找；os.path.isfile 处理用户配置的绝对路径
         return shutil.which(path) is not None or os.path.isfile(path)
 
+    @staticmethod
+    def list_windows() -> list[tuple[str, str]]:
+        """枚举当前可见的窗口，返回 [(title, pid), ...] 列表。
+
+        Windows 通过 PowerShell，Linux 通过 wmctrl / xdotool，macOS 通过 osascript。
+        如果平台不支持或命令失败，返回空列表。
+        """
+        try:
+            if sys.platform == "win32":
+                return GameCapture.list_windows_windows()
+            elif sys.platform == "linux":
+                return GameCapture.list_windows_linux()
+            elif sys.platform == "darwin":
+                return GameCapture.list_windows_macos()
+        except Exception as e:
+            LogManager.get().warning("Failed to enumerate windows", e)
+        return []
+
+    @staticmethod
+    def list_windows_windows() -> list[tuple[str, str]]:
+        """Windows: 通过 PowerShell 获取带有可见窗口的进程列表。"""
+        ps_script = (
+            "Get-Process"
+            " | Where-Object {$_.MainWindowTitle -ne ''}"
+            ' | ForEach-Object { $_.MainWindowTitle + "`t" + $_.Id }'
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+
+        windows: list[tuple[str, str]] = []
+        for line in result.stdout.decode(errors="replace").strip().splitlines():
+            parts = line.rsplit("\t", 1)
+            if len(parts) == 2 and parts[0].strip():
+                windows.append((parts[0].strip(), parts[1].strip()))
+        return windows
+
+    @staticmethod
+    def list_windows_linux() -> list[tuple[str, str]]:
+        """Linux: 通过 wmctrl 获取窗口列表，降级为 xdotool。"""
+        if shutil.which("wmctrl"):
+            result = subprocess.run(
+                ["wmctrl", "-l"],
+                capture_output=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                windows: list[tuple[str, str]] = []
+                for line in result.stdout.decode(errors="replace").strip().splitlines():
+                    # wmctrl -l 格式: 0x... desktop hostname title...
+                    parts = line.split(None, 3)
+                    if len(parts) >= 4 and parts[3].strip():
+                        windows.append((parts[3].strip(), parts[0].strip()))
+                return windows
+
+        if shutil.which("xdotool"):
+            search = subprocess.run(
+                ["xdotool", "search", "--onlyvisible", "--name", ""],
+                capture_output=True,
+                timeout=5,
+            )
+            if search.returncode == 0:
+                windows = []
+                for wid in search.stdout.decode().strip().splitlines():
+                    wid = wid.strip()
+                    if not wid:
+                        continue
+                    name_result = subprocess.run(
+                        ["xdotool", "getwindowname", wid],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                    if name_result.returncode == 0:
+                        title = name_result.stdout.decode(errors="replace").strip()
+                        if title:
+                            windows.append((title, wid))
+                return windows
+
+        return []
+
+    @staticmethod
+    def list_windows_macos() -> list[tuple[str, str]]:
+        """macOS: 通过 osascript 获取窗口列表。"""
+        # 使用 repeat 逐条输出，用 tab 分隔 name 和 pid，避免逗号导致解析歧义
+        script = (
+            'tell application "System Events"\n'
+            "  set pList to every process whose background only is false\n"
+            '  set output to ""\n'
+            "  repeat with p in pList\n"
+            "    set output to output & name of p & tab & (unix id of p as text) & linefeed\n"
+            "  end repeat\n"
+            "  return output\n"
+            "end tell"
+        )
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+
+        windows: list[tuple[str, str]] = []
+        for line in result.stdout.decode(errors="replace").strip().splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) == 2 and parts[0].strip():
+                windows.append((parts[0].strip(), parts[1].strip()))
+        return windows
+
     def capture_screenshot(self, window_title: str) -> str:
         """捕获指定窗口的截图，返回 PNG 的 base64 编码字符串。
 

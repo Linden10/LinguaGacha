@@ -1,0 +1,6 @@
+Before outputting the review results, think through each glossary entry step by step:
+1. Read the source term and its current translation.
+2. Consider whether the translation accurately captures the meaning.
+3. Check if the note provides relevant context.
+4. Determine the appropriate verdict (KEEP / FIX / REMOVE).
+5. If FIX, formulate the corrected translation.

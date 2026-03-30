@@ -5,9 +5,14 @@ from PySide6.QtCore import QSize
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractItemView
 from PySide6.QtWidgets import QHeaderView
+from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QListWidgetItem
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import Action
 from qfluentwidgets import FluentWindow
+from qfluentwidgets import ListWidget
+from qfluentwidgets import MenuAnimationType
+from qfluentwidgets import MessageBox
 from qfluentwidgets import RoundMenu
 from qfluentwidgets import qconfig
 
@@ -21,6 +26,8 @@ from frontend.Quality.QualityRuleIconHelper import RuleIconSpec
 from frontend.Quality.QualityRulePageBase import QualityRulePageBase
 from module.Config import Config
 from module.Data.DataManager import DataManager
+from module.Engine.Engine import Engine
+from module.Engine.Review.ReviewModels import GlossaryReviewResult
 from module.Localizer.Localizer import Localizer
 from module.QualityRule.QualityRuleStatistics import QualityRuleStatistics
 from qfluentwidgets import SwitchButton
@@ -34,6 +41,7 @@ ICON_CASE_SENSITIVE: BaseIcon = BaseIcon.CASE_SENSITIVE  # 规则图标：大小
 ICON_MENU_DELETE: BaseIcon = BaseIcon.TRASH_2  # 右键菜单：删除条目
 ICON_MENU_ENABLE: BaseIcon = BaseIcon.CHECK  # 右键菜单：启用
 ICON_MENU_DISABLE: BaseIcon = BaseIcon.X  # 右键菜单：禁用
+ICON_AI_REVIEW: BaseIcon = BaseIcon.SPARKLES  # 命令栏：AI 审校
 
 
 class GlossaryPage(QualityRulePageBase):
@@ -53,6 +61,9 @@ class GlossaryPage(QualityRulePageBase):
 
     def __init__(self, text: str, window: FluentWindow) -> None:
         super().__init__(text, window)
+
+        self.window_ref = window
+        self.pending_review_results: list[GlossaryReviewResult] = []
 
         self.rule_icon_renderer = QualityRuleIconRenderer(
             icon_size=self.CASE_ICON_SIZE,
@@ -83,6 +94,10 @@ class GlossaryPage(QualityRulePageBase):
         self.subscribe(Base.Event.QUALITY_RULE_UPDATE, self.on_quality_rule_update)
         self.subscribe(Base.Event.PROJECT_LOADED, self.on_project_loaded)
         self.subscribe(Base.Event.PROJECT_UNLOADED, self.on_project_unloaded)
+        self.subscribe(Base.Event.GLOSSARY_REVIEW_TASK, self.on_glossary_review_task)
+        self.subscribe(
+            Base.Event.GLOSSARY_REVIEW_PROGRESS, self.on_glossary_review_progress
+        )
 
     # ==================== DataManager 适配 ====================
 
@@ -330,3 +345,256 @@ class GlossaryPage(QualityRulePageBase):
 
     def set_case_sensitive_for_selection(self, enabled: bool) -> None:
         self.set_case_sensitive_for_rows(self.get_selected_entry_rows(), enabled)
+
+    # ==================== 命令栏：AI 审校 ====================
+
+    def add_standard_command_bar_actions(
+        self,
+        config: Config,
+        window: FluentWindow,
+    ) -> None:
+        """拼装命令栏，在标准操作后追加 AI 审校按钮。"""
+        super().add_standard_command_bar_actions(config, window)
+        self.command_bar_card.add_separator()
+        self.add_command_bar_action_ai_review()
+
+    def add_command_bar_action_ai_review(self) -> None:
+        """在命令栏添加 AI 审校按钮（下拉菜单：审校全部 / 审校选中）。"""
+        widget = self.command_bar_card.add_action(
+            Action(
+                ICON_AI_REVIEW,
+                Localizer.get().glossary_review_action,
+                triggered=lambda: self.show_ai_review_menu(widget),
+            )
+        )
+        self.ai_review_button = widget
+
+    def show_ai_review_menu(self, anchor: QWidget) -> None:
+        """显示 AI 审校下拉菜单。"""
+        menu = RoundMenu("", self)
+        menu.addAction(
+            Action(
+                ICON_AI_REVIEW,
+                Localizer.get().glossary_review_all,
+                triggered=self.on_review_all,
+            )
+        )
+        menu.addAction(
+            Action(
+                ICON_AI_REVIEW,
+                Localizer.get().glossary_review_selected,
+                triggered=self.on_review_selected,
+            )
+        )
+        global_pos = anchor.mapToGlobal(QPoint(0, 0))
+        menu.exec(global_pos, ani=True, aniType=MenuAnimationType.PULL_UP)
+
+    def on_review_all(self) -> None:
+        """审校全部术语条目。"""
+        if not self.entries:
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().glossary_review_no_entries,
+                },
+            )
+            return
+        self.start_glossary_review(list(self.entries))
+
+    def on_review_selected(self) -> None:
+        """审校选中的术语条目。"""
+        rows = self.get_selected_entry_rows()
+        if not rows:
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().glossary_review_no_selection,
+                },
+            )
+            return
+        entries = [self.entries[r] for r in rows]
+        self.start_glossary_review(entries)
+
+    def start_glossary_review(self, entries: list[dict[str, Any]]) -> None:
+        """发起术语表审校请求。"""
+        # 检查引擎忙碌状态
+        status = Engine.get().get_status()
+        if Base.is_engine_busy(status):
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().alert_engine_busy,
+                },
+            )
+            return
+
+        self.pending_review_results = []
+        self.emit(
+            Base.Event.GLOSSARY_REVIEW_TASK,
+            {
+                "sub_event": Base.SubEvent.REQUEST,
+                "entries": entries,
+            },
+        )
+
+    # ==================== 术语表审校事件处理 ====================
+
+    def on_glossary_review_task(self, event: Base.Event, data: dict) -> None:
+        """响应术语表审校任务生命周期事件。"""
+        sub_event = data.get("sub_event")
+        if sub_event in (Base.SubEvent.DONE, Base.SubEvent.ERROR):
+            final_status = data.get("final_status", "")
+            if final_status == "SUCCESS" and self.pending_review_results:
+                self.show_review_results_dialog()
+
+    def on_glossary_review_progress(self, event: Base.Event, data: dict) -> None:
+        """响应术语表审校进度更新。"""
+        current_batch = data.get("current_batch", 0)
+        total_batches = data.get("total_batches", 0)
+        batch_results_raw = data.get("results", [])
+
+        # 累积结果
+        for r in batch_results_raw:
+            self.pending_review_results.append(
+                GlossaryReviewResult(
+                    src=r.get("src", ""),
+                    dst=r.get("dst", ""),
+                    verdict=GlossaryReviewResult.Verdict(r.get("verdict", "KEEP")),
+                    suggested_dst=r.get("suggested_dst", ""),
+                    reason=r.get("reason", ""),
+                )
+            )
+
+        # 推送进度 toast
+        self.emit(
+            Base.Event.PROGRESS_TOAST,
+            {
+                "type": Base.ToastType.INFO,
+                "message": Localizer.get()
+                .review_page_glossary_review_progress.replace(
+                    "{CURRENT}", str(current_batch)
+                )
+                .replace("{TOTAL}", str(total_batches)),
+            },
+        )
+
+    def show_review_results_dialog(self) -> None:
+        """显示审校结果对话框，用户选择应用或放弃变更。"""
+        results = self.pending_review_results
+        if not results:
+            return
+
+        # 过滤出有变更的结果（FIX 和 REMOVE）
+        actionable = [
+            r for r in results if r.verdict != GlossaryReviewResult.Verdict.KEEP
+        ]
+
+        if not actionable:
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.SUCCESS,
+                    "message": Localizer.get().glossary_review_done,
+                },
+            )
+            return
+
+        dialog = MessageBox(
+            Localizer.get().glossary_review_results_title,
+            "",
+            self.window_ref,
+        )
+        dialog.yesButton.setText(Localizer.get().glossary_review_apply)
+        dialog.cancelButton.setText(Localizer.get().glossary_review_discard)
+
+        # 构建可勾选的结果列表
+        result_list = ListWidget(dialog)
+        result_list.setMinimumHeight(300)
+        for r in actionable:
+            if r.verdict == GlossaryReviewResult.Verdict.FIX:
+                label = f"🔧 {r.src}: {r.dst} → {r.suggested_dst}"
+                if r.reason:
+                    label += f"  ({r.reason})"
+            elif r.verdict == GlossaryReviewResult.Verdict.REMOVE:
+                label = f"❌ {r.src}: {r.dst}"
+                if r.reason:
+                    label += f"  ({r.reason})"
+            else:
+                continue
+
+            item = QListWidgetItem(label)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            result_list.addItem(item)
+
+        dialog.textLayout.addWidget(result_list)
+
+        # 添加摘要标签
+        keep_count = sum(
+            1 for r in results if r.verdict == GlossaryReviewResult.Verdict.KEEP
+        )
+        fix_count = sum(
+            1 for r in results if r.verdict == GlossaryReviewResult.Verdict.FIX
+        )
+        remove_count = sum(
+            1 for r in results if r.verdict == GlossaryReviewResult.Verdict.REMOVE
+        )
+        summary = (
+            f"✅ {Localizer.get().glossary_review_keep}: {keep_count}  "
+            f"🔧 {Localizer.get().glossary_review_fix}: {fix_count}  "
+            f"❌ {Localizer.get().glossary_review_remove}: {remove_count}"
+        )
+        summary_label = QLabel(summary, dialog)
+        dialog.textLayout.addWidget(summary_label)
+
+        if not dialog.exec():
+            return
+
+        # 收集用户选中的变更
+        selected_actionable: list[GlossaryReviewResult] = []
+        for i in range(result_list.count()):
+            list_item = result_list.item(i)
+            if list_item and list_item.checkState() == Qt.CheckState.Checked:
+                selected_actionable.append(actionable[i])
+
+        if not selected_actionable:
+            return
+
+        self.apply_review_results(selected_actionable)
+
+    def apply_review_results(self, results: list[GlossaryReviewResult]) -> None:
+        """应用审校结果到术语表：修正条目或移除条目。"""
+        # 按 src 建立变更映射
+        fix_map: dict[str, str] = {}
+        remove_set: set[str] = set()
+        for r in results:
+            if r.verdict == GlossaryReviewResult.Verdict.FIX and r.suggested_dst:
+                fix_map[r.src] = r.suggested_dst
+            elif r.verdict == GlossaryReviewResult.Verdict.REMOVE:
+                remove_set.add(r.src)
+
+        # 应用变更到当前条目
+        updated_entries: list[dict[str, Any]] = []
+        for entry in self.entries:
+            src = entry.get("src", "")
+            if src in remove_set:
+                continue  # 移除条目
+            if src in fix_map:
+                entry = dict(entry)  # 浅拷贝避免修改原始引用
+                entry["dst"] = fix_map[src]
+            updated_entries.append(entry)
+
+        self.entries = updated_entries
+        self.save_entries(self.entries)
+        self.refresh_table()
+
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.SUCCESS,
+                "message": Localizer.get().glossary_review_applied,
+            },
+        )
