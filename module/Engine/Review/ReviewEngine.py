@@ -52,10 +52,14 @@ class ReviewEngine(Base):
         self.approval_event: threading.Event = threading.Event()
         self.user_decision: str = ""
 
+        # 用户发起的即时暂停标记：下一条结果强制走手动审批
+        self.pause_next: bool = False
+
         # 注册事件
         self.subscribe(Base.Event.REVIEW_TASK, self.review_event)
         self.subscribe(Base.Event.REVIEW_REQUEST_STOP, self.stop_event)
         self.subscribe(Base.Event.REVIEW_USER_DECISION, self.on_user_decision)
+        self.subscribe(Base.Event.REVIEW_PAUSE_NEXT, self.on_pause_next)
 
     def get_results(self) -> list[ReviewResult]:
         """获取当前所有审校结果（线程安全）。"""
@@ -84,6 +88,11 @@ class ReviewEngine(Base):
         with self.lock:
             self.user_decision = decision
         self.approval_event.set()
+
+    def on_pause_next(self, event: Base.Event, data: dict) -> None:
+        """响应用户即时暂停请求：下一条审校结果强制走手动审批。"""
+        with self.lock:
+            self.pause_next = True
 
     def review_event(self, event: Base.Event, data: dict) -> None:
         """响应审校任务事件（入口）。"""
@@ -118,6 +127,7 @@ class ReviewEngine(Base):
             self.stop_requested = False
             self.results = []
             self.progress = ReviewProgressSnapshot(total_line=len(items))
+            self.pause_next = False
 
         # 启动后台任务
         TaskRunnerLifecycle.start_background_run(
@@ -312,18 +322,31 @@ class ReviewEngine(Base):
 
         MANUAL: FIX/FAIL 结果阻塞等待用户决定。
         AUTO_ACCEPT: 所有结果自动批准。
-        AUTO_SKIP_WARNING: FIX 自动批准，FAIL 阻塞等待用户决定。
+        AUTO_PAUSE_ON_FAIL: FIX 自动批准，FAIL 阻塞等待用户决定。
+        pause_next: 无论模式，下一条强制走手动审批（一次性标记）。
         PASS/ERROR 在所有模式下自动通过，不阻塞。
         """
-        needs_manual = False
+        # 检查一次性暂停标记（用户在自动模式下点了 Pause）
+        force_pause = False
+        with self.lock:
+            if self.pause_next:
+                self.pause_next = False
+                force_pause = True
 
         if result.verdict in (ReviewVerdict.PASS, ReviewVerdict.ERROR):
             # PASS 和 ERROR 在所有模式下都自动通过
+            # 即使 force_pause 也不阻塞这两种无操作性的结果
             return self.DECISION_APPROVE
+
+        # force_pause 对 FIX/FAIL 生效
+        if force_pause:
+            return self.wait_for_user_decision(result, item, total, current)
+
+        needs_manual = False
 
         if approval_mode == Config.ReviewApprovalMode.MANUAL:
             needs_manual = True
-        elif approval_mode == Config.ReviewApprovalMode.AUTO_SKIP_WARNING:
+        elif approval_mode == Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL:
             # FIX 自动接受，FAIL 需要人工
             if result.verdict == ReviewVerdict.FAIL:
                 needs_manual = True

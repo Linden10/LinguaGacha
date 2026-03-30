@@ -30,6 +30,7 @@ from widget.SettingCard import SettingCard
 # ==================== 图标常量 ====================
 ICON_ACTION_START: BaseIcon = BaseIcon.PLAY
 ICON_ACTION_STOP: BaseIcon = BaseIcon.CIRCLE_STOP
+ICON_ACTION_PAUSE: BaseIcon = BaseIcon.CIRCLE_PAUSE
 ICON_ACTION_APPROVE: BaseIcon = BaseIcon.CHECK
 ICON_ACTION_DENY: BaseIcon = BaseIcon.CROSS
 ICON_ACTION_RETRY: BaseIcon = BaseIcon.REFRESH_CW
@@ -436,6 +437,17 @@ class ReviewPage(Base, QWidget):
         )
         self.stop_action.setEnabled(False)
 
+        # 即时暂停按钮：自动审批模式下临时暂停下一行
+        self.pause_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_PAUSE,
+                Localizer.get().review_page_pause,
+                self.command_bar,
+                triggered=self.on_pause_next,
+            )
+        )
+        self.pause_action.setEnabled(False)
+
         self.command_bar.add_separator()
 
         # 审批操作按钮
@@ -631,6 +643,10 @@ class ReviewPage(Base, QWidget):
             {"decision": "retry"},
         )
 
+    def on_pause_next(self) -> None:
+        """请求暂停下一行审校以进行手动审批。"""
+        self.emit(Base.Event.REVIEW_PAUSE_NEXT, {})
+
     def on_ask_ai(self) -> None:
         """切换询问输入框的可见性，聚焦输入框。"""
         visible = not self.inquiry_input.isVisible()
@@ -812,6 +828,11 @@ class ReviewPage(Base, QWidget):
 
         self.start_action.setEnabled(not is_busy)
         self.stop_action.setEnabled(is_reviewing and not is_stopping)
+
+        # 暂停按钮：审校进行中且未在等待审批时可用（让用户在自动模式下临时暂停）
+        self.pause_action.setEnabled(
+            is_reviewing and not is_stopping and not self.awaiting_approval
+        )
 
         # 审批按钮仅在等待用户审批时启用
         can_approve = is_reviewing and not is_stopping and self.awaiting_approval

@@ -42,7 +42,9 @@ class Config:
     class ReviewApprovalMode(StrEnum):
         MANUAL = "MANUAL"  # 逐行人工审批
         AUTO_ACCEPT = "AUTO_ACCEPT"  # 自动接受 AI 建议
-        AUTO_SKIP_WARNING = "AUTO_SKIP_WARNING"  # 仅自动接受高置信度建议
+        AUTO_PAUSE_ON_FAIL = (
+            "AUTO_SKIP_WARNING"  # 自动接受 FIX，FAIL 时暂停等待人工审批
+        )
 
     class CaptureMode(StrEnum):
         IMAGE = "IMAGE"  # 截图

@@ -506,7 +506,7 @@ class ExpertSettingsPage(Base, QWidget):
         mode_map = {
             Config.ReviewApprovalMode.MANUAL: 0,
             Config.ReviewApprovalMode.AUTO_ACCEPT: 1,
-            Config.ReviewApprovalMode.AUTO_SKIP_WARNING: 2,
+            Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL: 2,
         }
         combo.setCurrentIndex(mode_map.get(config.review_approval_mode, 0))
 
@@ -514,7 +514,7 @@ class ExpertSettingsPage(Base, QWidget):
             reverse_map = {
                 0: Config.ReviewApprovalMode.MANUAL,
                 1: Config.ReviewApprovalMode.AUTO_ACCEPT,
-                2: Config.ReviewApprovalMode.AUTO_SKIP_WARNING,
+                2: Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL,
             }
             current_config = Config().load()
             current_config.review_approval_mode = reverse_map.get(
