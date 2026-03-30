@@ -130,6 +130,7 @@ class LocalizerEN(LocalizerZH):
     app_custom_prompt_navigation_item: str = "Custom Prompts"
     app_analysis_prompt_page: str = "Analysis Prompts"
     app_translation_prompt_page: str = "Translation Prompts"
+    app_review_prompt_page: str = "Review Prompts"
     app_laboratory_page: str = "Laboratory"
     app_treasure_chest_page: str = "Treasure Chest"
 
@@ -621,6 +622,9 @@ class LocalizerEN(LocalizerZH):
         "<br>"
         "• Disabled: Sends the full text for better context, but may reduce preserve effectiveness"
     )
+    expert_settings_page_ffmpeg_path: str = "FFmpeg Path"
+    expert_settings_page_ffmpeg_path_desc: str = "Custom path to the ffmpeg executable, leave empty to use the system PATH"
+    expert_settings_page_ffmpeg_path_placeholder: str = "System PATH (default)"
 
     # 质量类通用
     quality_import: str = "Import"
@@ -701,6 +705,16 @@ class LocalizerEN(LocalizerZH):
         "Note: The prefix and suffix are fixed and cannot be modified"
         "<br>"
         "The content on this page is only used in analysis tasks after this page is enabled"
+    )
+
+    # 自定义提示词 - 审校
+    review_prompt_page_head: str = "Custom Review Prompts"
+    review_prompt_page_head_desc: str = (
+        "Adjust AI review criteria and output requirements through custom prompts"
+        "<br>"
+        "Note: The prefix and suffix are fixed and cannot be modified"
+        "<br>"
+        "The content on this page is only used in review tasks after this page is enabled"
     )
 
     # 自定义提示词 - 导入导出
@@ -794,23 +808,27 @@ class LocalizerEN(LocalizerZH):
     review_page_timeout: str = "Per-Line Timeout (seconds)"
     review_page_timeout_desc: str = "Timeout for each review request"
     review_page_scope_all: str = "Review All Files"
-    review_page_scope_file: str = "Review Selected File"
+    review_page_scope_file: str = "Review Selected Files"
     review_page_scope_failed: str = "Review Failed Lines"
     review_page_scope: str = "Review Scope"
     review_page_scope_desc: str = "Choose which items to include in the review"
-    review_page_scope_file_desc: str = "Select a file to review its translated lines"
-    review_page_no_file_selected: str = "Please select a file first …"
+    review_page_scope_file_desc: str = "Select one or more files to review their translated lines"
+    review_page_no_file_selected: str = "Please select at least one file first …"
+    review_page_select_files: str = "Select Files …"
+    review_page_files_selected: str = "{COUNT} file(s) selected"
     review_page_capture_enable: str = "Game Window Capture"
     review_page_capture_enable_desc: str = "Capture screenshots or record video/audio from the game window for AI-assisted visual review (requires ffmpeg)"
     review_page_capture_mode: str = "Capture Mode"
     review_page_capture_mode_desc: str = "Screenshot sends an image to vision-capable models; Video/Audio records for reference"
     review_page_capture_image: str = "Screenshot"
-    review_page_capture_video: str = "Video"
+    review_page_capture_video: str = "Video (No Audio)"
+    review_page_capture_video_audio: str = "Video (With Audio)"
     review_page_capture_audio: str = "Audio"
     review_page_capture_window: str = "Game Window Title"
     review_page_capture_window_desc: str = "Title of the game window to capture (must match exactly)"
     review_page_capture_hotkey: str = "Advance Hotkey"
-    review_page_capture_hotkey_desc: str = "Key to send to the game window to advance dialogue (e.g. Enter, Space)"
+    review_page_capture_hotkey_desc: str = "Click the field and press a key or key combination to set the hotkey"
+    review_page_capture_hotkey_placeholder: str = "Click here, then press a key …"
     review_page_capture_auto_advance: str = "Auto Advance"
     review_page_capture_auto_advance_desc: str = "Automatically send the hotkey before capturing each line"
     review_page_progress: str = "Reviewing, line {CURRENT} of {TOTAL} …"

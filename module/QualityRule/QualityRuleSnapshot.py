@@ -25,6 +25,8 @@ class QualityRuleSnapshot:
     translation_prompt: str
     analysis_prompt_enable: bool
     analysis_prompt: str
+    review_prompt_enable: bool
+    review_prompt: str
 
     glossary_entries: list[dict[str, Any]]
 
@@ -59,6 +61,8 @@ class QualityRuleSnapshot:
             translation_prompt=dm.get_translation_prompt(),
             analysis_prompt_enable=dm.get_analysis_prompt_enable(),
             analysis_prompt=dm.get_analysis_prompt(),
+            review_prompt_enable=dm.get_review_prompt_enable(),
+            review_prompt=dm.get_review_prompt(),
             glossary_entries=list(cls.copy_non_empty_entries(dm.get_glossary())),
         )
 

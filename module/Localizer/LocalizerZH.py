@@ -130,6 +130,7 @@ class LocalizerZH:
     app_custom_prompt_navigation_item: str = "自定义提示词"
     app_analysis_prompt_page: str = "分析提示词"
     app_translation_prompt_page: str = "翻译提示词"
+    app_review_prompt_page: str = "审校提示词"
     app_laboratory_page: str = "实验室"
     app_treasure_chest_page: str = "百宝箱"
 
@@ -621,6 +622,9 @@ class LocalizerZH:
         "<br>"
         "• 禁用后，会将完整的文本条目发送给模型翻译，可能会获得更完整的语义，但会降低文本保护效果"
     )
+    expert_settings_page_ffmpeg_path: str = "FFmpeg 路径"
+    expert_settings_page_ffmpeg_path_desc: str = "自定义 ffmpeg 可执行文件路径，留空则使用系统 PATH"
+    expert_settings_page_ffmpeg_path_placeholder: str = "系统 PATH（默认）"
 
     # 质量类通用
     quality_import: str = "导入"
@@ -688,9 +692,9 @@ class LocalizerZH:
     translation_prompt_page_head_desc: str = (
         "通过自定义提示词追加故事设定、行文风格等额外翻译要求"
         "<br>"
-        "注意：前缀与后缀部分固定不可修改，只有打开本页开关后，才会在翻译任务中使用这里的正文"
-        ""
-        ""
+        "注意：前缀与后缀部分固定不可修改"
+        "<br>"
+        "只有打开本页开关后，才会在翻译任务中使用这里的正文"
     )
 
     # 自定义提示词 - 分析
@@ -698,9 +702,19 @@ class LocalizerZH:
     analysis_prompt_page_head_desc: str = (
         "通过自定义提示词调整术语分析时的抽取口径和输出要求"
         "<br>"
-        "注意：前缀与后缀部分固定不可修改，只有打开本页开关后，才会在分析任务中使用这里的正文"
-        ""
-        ""
+        "注意：前缀与后缀部分固定不可修改"
+        "<br>"
+        "只有打开本页开关后，才会在分析任务中使用这里的正文"
+    )
+
+    # 自定义提示词 - 审校
+    review_prompt_page_head: str = "自定义审校提示词"
+    review_prompt_page_head_desc: str = (
+        "通过自定义提示词调整 AI 审校时的评审标准和输出要求"
+        "<br>"
+        "注意：前缀与后缀部分固定不可修改"
+        "<br>"
+        "只有打开本页开关后，才会在审校任务中使用这里的正文"
     )
 
     # 自定义提示词 - 导入导出
@@ -798,19 +812,23 @@ class LocalizerZH:
     review_page_scope_failed: str = "审校失败行"
     review_page_scope: str = "审校范围"
     review_page_scope_desc: str = "选择需要审校的条目范围"
-    review_page_scope_file_desc: str = "选择要审校其译文的文件"
-    review_page_no_file_selected: str = "请先选择一个文件 …"
+    review_page_scope_file_desc: str = "选择一个或多个要审校其译文的文件"
+    review_page_no_file_selected: str = "请先选择至少一个文件 …"
+    review_page_select_files: str = "选择文件 …"
+    review_page_files_selected: str = "已选择 {COUNT} 个文件"
     review_page_capture_enable: str = "游戏窗口捕获"
     review_page_capture_enable_desc: str = "从游戏窗口截图或录制视频/音频，辅助 AI 视觉审校（需要 ffmpeg）"
     review_page_capture_mode: str = "捕获模式"
     review_page_capture_mode_desc: str = "截图模式将图片发送给支持视觉的模型；视频/音频模式录制供参考"
     review_page_capture_image: str = "截图"
-    review_page_capture_video: str = "视频"
+    review_page_capture_video: str = "视频（无音频）"
+    review_page_capture_video_audio: str = "视频（含音频）"
     review_page_capture_audio: str = "音频"
     review_page_capture_window: str = "游戏窗口标题"
     review_page_capture_window_desc: str = "要捕获的游戏窗口标题（需精确匹配）"
     review_page_capture_hotkey: str = "推进热键"
-    review_page_capture_hotkey_desc: str = "发送给游戏窗口以推进对话的按键（如 Enter、Space）"
+    review_page_capture_hotkey_desc: str = "点击输入框后按下键盘按键或组合键来设置热键"
+    review_page_capture_hotkey_placeholder: str = "点击此处，然后按下按键 …"
     review_page_capture_auto_advance: str = "自动推进"
     review_page_capture_auto_advance_desc: str = "每行审校前自动发送热键推进游戏"
     review_page_progress: str = "正在审校，第 {CURRENT} 行，共 {TOTAL} 行 …"

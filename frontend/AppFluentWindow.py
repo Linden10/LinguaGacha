@@ -75,6 +75,7 @@ ICON_NAV_POST_REPLACEMENT: BaseIcon = BaseIcon.BETWEEN_VERTICAL_END  # 侧边栏
 ICON_NAV_CUSTOM_PROMPT: BaseIcon = BaseIcon.BOOK_OPEN_CHECK  # 侧边栏：自定义提示词入口
 ICON_NAV_ANALYSIS_PROMPT: BaseIcon = BaseIcon.RADAR  # 自定义提示词：分析页
 ICON_NAV_TRANSLATION_PROMPT: BaseIcon = BaseIcon.SCAN_TEXT  # 自定义提示词：翻译页
+ICON_NAV_REVIEW_PROMPT: BaseIcon = BaseIcon.CLIPBOARD_CHECK  # 自定义提示词：审校页
 
 ICON_NAV_LABORATORY: BaseIcon = BaseIcon.FLASK_CONICAL  # 侧边栏：实验室
 ICON_NAV_TOOLBOX: BaseIcon = BaseIcon.SPARKLES  # 侧边栏：百宝箱
@@ -191,6 +192,7 @@ class AppFluentWindow(Base, FluentWindow):
             "custom_prompt_page",
             "analysis_prompt_page",
             "translation_prompt_page",
+            "review_prompt_page",
             "laboratory_page",
             "tool_box_page",
         ]
@@ -240,6 +242,7 @@ class AppFluentWindow(Base, FluentWindow):
             "custom_prompt_page",
             "analysis_prompt_page",
             "translation_prompt_page",
+            "review_prompt_page",
             "laboratory_page",
             "tool_box_page",
             "ts_conversion_page",
@@ -777,6 +780,16 @@ class AppFluentWindow(Base, FluentWindow):
             ),
             ICON_NAV_ANALYSIS_PROMPT.qicon(),
             Localizer.get().app_analysis_prompt_page,
+            parent=self.custom_prompt_page,
+        )
+        self.addSubInterface(
+            CustomPromptPage(
+                "review_prompt_page",
+                self,
+                PromptPathResolver.TaskType.REVIEW,
+            ),
+            ICON_NAV_REVIEW_PROMPT.qicon(),
+            Localizer.get().app_review_prompt_page,
             parent=self.custom_prompt_page,
         )
 

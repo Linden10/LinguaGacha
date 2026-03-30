@@ -29,6 +29,7 @@ class LGDatabase(Base):
         TEXT_PRESERVE = "TEXT_PRESERVE"  # 文本保护
         TRANSLATION_PROMPT = "TRANSLATION_PROMPT"  # 翻译提示词
         ANALYSIS_PROMPT = "ANALYSIS_PROMPT"  # 分析提示词
+        REVIEW_PROMPT = "REVIEW_PROMPT"  # 审校提示词
 
     # 数据库版本号，用于未来的 schema 迁移
     SCHEMA_VERSION = 1

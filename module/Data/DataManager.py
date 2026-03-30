@@ -813,6 +813,19 @@ class DataManager(Base):
     def set_analysis_prompt_enable(self, enable: bool) -> None:
         self.quality_rule_service.set_analysis_prompt_enable(enable)
 
+    def get_review_prompt(self) -> str:
+        return self.quality_rule_service.get_review_prompt()
+
+    def set_review_prompt(self, text: str) -> None:
+        self.quality_rule_service.set_review_prompt(text)
+        self.emit_quality_rule_update(rule_types=[LGDatabase.RuleType.REVIEW_PROMPT])
+
+    def get_review_prompt_enable(self) -> bool:
+        return self.quality_rule_service.get_review_prompt_enable()
+
+    def set_review_prompt_enable(self, enable: bool) -> None:
+        self.quality_rule_service.set_review_prompt_enable(enable)
+
     @staticmethod
     def normalize_rule_statistics_text(value: Any) -> str:
         return QualityRuleService.normalize_rule_statistics_text(value)

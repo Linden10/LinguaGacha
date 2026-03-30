@@ -117,7 +117,6 @@ class ReviewEngine(Base):
 
         try:
             config = Config().load()
-            dm = DataManager.get()
 
             # 解析审校使用的模型
             model = self.resolve_review_model(config)
@@ -132,7 +131,7 @@ class ReviewEngine(Base):
                 return
 
             # 创建质量规则快照
-            quality_snapshot = QualityRuleSnapshot.capture(dm)
+            quality_snapshot = QualityRuleSnapshot.capture()
 
             # 确定重试上限
             max_retries = config.max_round
