@@ -340,9 +340,7 @@ class ProofreadingPage(Base, QWidget):
         self.table_widget.batch_reset_translation_clicked.connect(
             self.on_batch_reset_translation_clicked
         )
-        self.table_widget.batch_review_clicked.connect(
-            self.on_batch_review_clicked
-        )
+        self.table_widget.batch_review_clicked.connect(self.on_batch_review_clicked)
         self.table_widget.itemSelectionChanged.connect(self.on_table_selection_changed)
         self.table_widget.set_items([], {})
 

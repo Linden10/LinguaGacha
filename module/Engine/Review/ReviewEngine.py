@@ -167,7 +167,10 @@ class ReviewEngine(Base):
                 # 自动推进游戏并捕获截图
                 screenshot_b64 = ""
                 if capture_enabled and capturer is not None:
-                    if config.review_capture_auto_advance and config.review_capture_hotkey:
+                    if (
+                        config.review_capture_auto_advance
+                        and config.review_capture_hotkey
+                    ):
                         capturer.send_hotkey(
                             config.review_capture_window,
                             config.review_capture_hotkey,

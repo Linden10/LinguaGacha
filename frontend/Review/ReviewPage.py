@@ -15,7 +15,6 @@ from module.Config import Config
 from module.Data.DataManager import DataManager
 from module.Engine.Engine import Engine
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
-from module.GameCapture.GameCapture import GameCapture
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
 from widget.CustomLineEdit import CustomLineEdit
@@ -275,7 +274,9 @@ class ReviewPage(Base, QWidget):
         self.capture_mode_combo.setCurrentIndex(
             capture_mode_map.get(config.review_capture_mode, 0)
         )
-        self.capture_mode_combo.currentIndexChanged.connect(self.on_capture_mode_changed)
+        self.capture_mode_combo.currentIndexChanged.connect(
+            self.on_capture_mode_changed
+        )
         mode_card.add_right_widget(self.capture_mode_combo)
         parent.addWidget(mode_card)
         self.capture_mode_card = mode_card
@@ -416,9 +417,7 @@ class ReviewPage(Base, QWidget):
         elif scope_index == SCOPE_FAILED:
             # 仅审校失败 / 错误行
             review_items = [
-                item
-                for item in items
-                if item.status == Base.ProjectStatus.ERROR
+                item for item in items if item.status == Base.ProjectStatus.ERROR
             ]
             scope_desc = Localizer.get().review_page_scope_failed
 
