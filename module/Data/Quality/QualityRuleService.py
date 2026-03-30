@@ -207,6 +207,18 @@ class QualityRuleService:
     def set_analysis_prompt_enable(self, enable: bool) -> None:
         self.meta_service.set_meta("analysis_prompt_enable", bool(enable))
 
+    def get_review_prompt(self) -> str:
+        return self.get_rule_text_cached(LGDatabase.RuleType.REVIEW_PROMPT)
+
+    def set_review_prompt(self, text: str) -> None:
+        self.set_rule_text_cached(LGDatabase.RuleType.REVIEW_PROMPT, text)
+
+    def get_review_prompt_enable(self) -> bool:
+        return bool(self.meta_service.get_meta("review_prompt_enable", False))
+
+    def set_review_prompt_enable(self, enable: bool) -> None:
+        self.meta_service.set_meta("review_prompt_enable", bool(enable))
+
     @staticmethod
     def normalize_rule_statistics_text(value: Any) -> str:
         """把统计输入统一成字符串。"""

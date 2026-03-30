@@ -164,6 +164,13 @@ class RuleService:
                 "analysis_prompt_enable",
                 Localizer.get().app_analysis_prompt_page,
             ),
+            (
+                PromptPathResolver.TaskType.REVIEW,
+                config.review_custom_prompt_default_preset,
+                LGDatabase.RuleType.REVIEW_PROMPT,
+                "review_prompt_enable",
+                Localizer.get().app_review_prompt_page,
+            ),
         ]
 
         for task_type, virtual_id, rule_type, meta_key, page_name in prompt_defaults:

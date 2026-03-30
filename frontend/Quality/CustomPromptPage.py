@@ -83,25 +83,36 @@ class CustomPromptPage(Base, QWidget):
     def is_translation_task(self) -> bool:
         return self.task_type == PromptPathResolver.TaskType.TRANSLATION
 
+    def is_review_task(self) -> bool:
+        return self.task_type == PromptPathResolver.TaskType.REVIEW
+
     def get_prompt_data(self) -> str:
         if self.is_translation_task():
             return DataManager.get().get_translation_prompt()
+        if self.is_review_task():
+            return DataManager.get().get_review_prompt()
         return DataManager.get().get_analysis_prompt()
 
     def set_prompt_data(self, data: str) -> None:
         if self.is_translation_task():
             DataManager.get().set_translation_prompt(data)
+        elif self.is_review_task():
+            DataManager.get().set_review_prompt(data)
         else:
             DataManager.get().set_analysis_prompt(data)
 
     def get_prompt_enable(self) -> bool:
         if self.is_translation_task():
             return DataManager.get().get_translation_prompt_enable()
+        if self.is_review_task():
+            return DataManager.get().get_review_prompt_enable()
         return DataManager.get().get_analysis_prompt_enable()
 
     def set_prompt_enable(self, enable: bool) -> None:
         if self.is_translation_task():
             DataManager.get().set_translation_prompt_enable(enable)
+        elif self.is_review_task():
+            DataManager.get().set_review_prompt_enable(enable)
         else:
             DataManager.get().set_analysis_prompt_enable(enable)
 
@@ -125,11 +136,15 @@ class CustomPromptPage(Base, QWidget):
     def get_default_preset_config_key(self) -> str:
         if self.is_translation_task():
             return "translation_custom_prompt_default_preset"
+        if self.is_review_task():
+            return "review_custom_prompt_default_preset"
         return "analysis_custom_prompt_default_preset"
 
     def get_page_key_prefix(self) -> str:
         if self.is_translation_task():
             return "translation_prompt"
+        if self.is_review_task():
+            return "review_prompt"
         return "analysis_prompt"
 
     def build_default_prompt_text(self, config: Config) -> str:
@@ -137,6 +152,8 @@ class CustomPromptPage(Base, QWidget):
         language = builder.get_prompt_ui_language()
         if self.is_translation_task():
             return builder.get_base(language)
+        if self.is_review_task():
+            return builder.get_review_base(language)
         return builder.get_analysis_base(language)
 
     def build_prefix_text(self, config: Config) -> str:
@@ -144,6 +161,8 @@ class CustomPromptPage(Base, QWidget):
         language = builder.get_prompt_ui_language()
         if self.is_translation_task():
             return builder.get_prefix(language)
+        if self.is_review_task():
+            return builder.get_review_prefix(language)
         return builder.get_analysis_prefix(language)
 
     def build_suffix_text(self, config: Config) -> str:
@@ -151,6 +170,8 @@ class CustomPromptPage(Base, QWidget):
         language = builder.get_prompt_ui_language()
         if self.is_translation_task():
             return builder.get_suffix(language)
+        if self.is_review_task():
+            return builder.get_review_suffix(language)
         return builder.get_analysis_suffix(language)
 
     def on_project_loaded(self, event: Base.Event, data: dict) -> None:

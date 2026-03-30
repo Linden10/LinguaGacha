@@ -130,6 +130,7 @@ class LocalizerEN(LocalizerZH):
     app_custom_prompt_navigation_item: str = "Custom Prompts"
     app_analysis_prompt_page: str = "Analysis Prompts"
     app_translation_prompt_page: str = "Translation Prompts"
+    app_review_prompt_page: str = "Review Prompts"
     app_laboratory_page: str = "Laboratory"
     app_treasure_chest_page: str = "Treasure Chest"
 
@@ -701,6 +702,16 @@ class LocalizerEN(LocalizerZH):
         "Note: The prefix and suffix are fixed and cannot be modified"
         "<br>"
         "The content on this page is only used in analysis tasks after this page is enabled"
+    )
+
+    # 自定义提示词 - 审校
+    review_prompt_page_head: str = "Custom Review Prompts"
+    review_prompt_page_head_desc: str = (
+        "Adjust AI review criteria and output requirements through custom prompts"
+        "<br>"
+        "Note: The prefix and suffix are fixed and cannot be modified"
+        "<br>"
+        "The content on this page is only used in review tasks after this page is enabled"
     )
 
     # 自定义提示词 - 导入导出

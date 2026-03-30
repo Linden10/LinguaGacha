@@ -130,6 +130,7 @@ class LocalizerZH:
     app_custom_prompt_navigation_item: str = "自定义提示词"
     app_analysis_prompt_page: str = "分析提示词"
     app_translation_prompt_page: str = "翻译提示词"
+    app_review_prompt_page: str = "审校提示词"
     app_laboratory_page: str = "实验室"
     app_treasure_chest_page: str = "百宝箱"
 
@@ -699,6 +700,16 @@ class LocalizerZH:
         "通过自定义提示词调整术语分析时的抽取口径和输出要求"
         "<br>"
         "注意：前缀与后缀部分固定不可修改，只有打开本页开关后，才会在分析任务中使用这里的正文"
+        ""
+        ""
+    )
+
+    # 自定义提示词 - 审校
+    review_prompt_page_head: str = "自定义审校提示词"
+    review_prompt_page_head_desc: str = (
+        "通过自定义提示词调整 AI 审校时的评审标准和输出要求"
+        "<br>"
+        "注意：前缀与后缀部分固定不可修改，只有打开本页开关后，才会在审校任务中使用这里的正文"
         ""
         ""
     )

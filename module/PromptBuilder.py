@@ -106,6 +106,27 @@ class PromptBuilder(Base):
             PromptPathResolver.TaskType.ANALYSIS, language, "suffix.txt"
         )
 
+    @classmethod
+    @lru_cache(maxsize=None)
+    def get_review_base(cls, language: BaseLanguage.Enum) -> str:
+        return cls.read_prompt_text(
+            PromptPathResolver.TaskType.REVIEW, language, "base.txt"
+        )
+
+    @classmethod
+    @lru_cache(maxsize=None)
+    def get_review_prefix(cls, language: BaseLanguage.Enum) -> str:
+        return cls.read_prompt_text(
+            PromptPathResolver.TaskType.REVIEW, language, "prefix.txt"
+        )
+
+    @classmethod
+    @lru_cache(maxsize=None)
+    def get_review_suffix(cls, language: BaseLanguage.Enum) -> str:
+        return cls.read_prompt_text(
+            PromptPathResolver.TaskType.REVIEW, language, "suffix.txt"
+        )
+
     def get_prompt_ui_language(self) -> BaseLanguage.Enum:
         """提示词模板和说明文字始终跟随当前 UI 语言。"""
         return Localizer.get_app_language()
