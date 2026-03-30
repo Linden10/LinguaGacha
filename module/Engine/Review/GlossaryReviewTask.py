@@ -28,9 +28,7 @@ class GlossaryReviewTask:
     SUGGESTED_DST_PATTERN: re.Pattern[str] = re.compile(
         r'"suggested_dst"\s*:\s*"((?:[^"\\]|\\.)*)"'
     )
-    REASON_PATTERN: re.Pattern[str] = re.compile(
-        r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"'
-    )
+    REASON_PATTERN: re.Pattern[str] = re.compile(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
     def __init__(
         self,
@@ -116,8 +114,8 @@ class GlossaryReviewTask:
                 line["info"] = info
             entry_lines.append(json.dumps(line, ensure_ascii=False))
 
-        user_message = (
-            "Review the following glossary entries:\n" + "\n".join(entry_lines)
+        user_message = "Review the following glossary entries:\n" + "\n".join(
+            entry_lines
         )
 
         return [

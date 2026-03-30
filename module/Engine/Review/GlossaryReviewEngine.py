@@ -37,9 +37,7 @@ class GlossaryReviewEngine(Base):
 
         # 注册事件
         self.subscribe(Base.Event.GLOSSARY_REVIEW_TASK, self.review_event)
-        self.subscribe(
-            Base.Event.GLOSSARY_REVIEW_REQUEST_STOP, self.stop_event
-        )
+        self.subscribe(Base.Event.GLOSSARY_REVIEW_REQUEST_STOP, self.stop_event)
 
     def should_stop(self) -> bool:
         """检查是否收到停止请求。"""
@@ -207,8 +205,7 @@ class GlossaryReviewEngine(Base):
                 results = task.start()
                 # 检查是否全部是异常结果（所有 reason 都包含异常信息）
                 has_valid = any(
-                    r.verdict != GlossaryReviewResult.Verdict.KEEP
-                    or not r.reason
+                    r.verdict != GlossaryReviewResult.Verdict.KEEP or not r.reason
                     for r in results
                 )
                 if has_valid:
