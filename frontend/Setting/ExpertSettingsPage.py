@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
 from typing import Callable
 from qfluentwidgets import Action
+from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
 from qfluentwidgets import PushButton
 from qfluentwidgets import RoundMenu
@@ -63,6 +64,10 @@ class ExpertSettingsPage(Base, QWidget):
             scroll_area_vbox, config, window
         )
         self.add_widget_ffmpeg_path(scroll_area_vbox, config, window)
+        self.add_widget_review_model(scroll_area_vbox, config, window)
+        self.add_widget_review_approval_mode(scroll_area_vbox, config, window)
+        self.add_widget_review_preceding_lines(scroll_area_vbox, config, window)
+        self.add_widget_review_timeout(scroll_area_vbox, config, window)
 
         # 填充
         scroll_area_vbox.addStretch(1)
@@ -442,4 +447,127 @@ class ExpertSettingsPage(Base, QWidget):
         layout.addWidget(ffmpeg_edit)
         layout.addWidget(browse_button)
         card.add_right_widget(container)
+        parent.addWidget(card)
+
+    # AI 审校模型
+    def add_widget_review_model(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        card = SettingCard(
+            title=Localizer.get().expert_settings_page_review_model,
+            description=Localizer.get().expert_settings_page_review_model_desc,
+            parent=self,
+        )
+
+        combo = ComboBox(card)
+        combo.setMinimumWidth(200)
+
+        # 第一项：使用当前激活模型
+        combo.addItem(Localizer.get().auto, userData="")
+
+        models = config.models or []
+        selected_index = 0
+        for i, model in enumerate(models):
+            model_name = model.get("name", model.get("id", "Unknown"))
+            model_id = model.get("id", "")
+            combo.addItem(model_name, userData=model_id)
+            if model_id == config.review_model_id:
+                selected_index = i + 1
+
+        combo.setCurrentIndex(selected_index)
+
+        def on_changed(index: int) -> None:
+            current_config = Config().load()
+            current_config.review_model_id = combo.itemData(index) or ""
+            current_config.save()
+
+        combo.currentIndexChanged.connect(on_changed)
+        card.add_right_widget(combo)
+        parent.addWidget(card)
+
+    # AI 审校审批模式
+    def add_widget_review_approval_mode(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        card = SettingCard(
+            title=Localizer.get().expert_settings_page_review_approval_mode,
+            description=Localizer.get().expert_settings_page_review_approval_mode_desc,
+            parent=self,
+        )
+
+        combo = ComboBox(card)
+        combo.addItems(
+            [
+                Localizer.get().review_page_approval_manual,
+                Localizer.get().review_page_approval_auto,
+                Localizer.get().review_page_approval_auto_skip,
+            ]
+        )
+        mode_map = {
+            Config.ReviewApprovalMode.MANUAL: 0,
+            Config.ReviewApprovalMode.AUTO_ACCEPT: 1,
+            Config.ReviewApprovalMode.AUTO_SKIP_WARNING: 2,
+        }
+        combo.setCurrentIndex(mode_map.get(config.review_approval_mode, 0))
+
+        def on_changed(index: int) -> None:
+            reverse_map = {
+                0: Config.ReviewApprovalMode.MANUAL,
+                1: Config.ReviewApprovalMode.AUTO_ACCEPT,
+                2: Config.ReviewApprovalMode.AUTO_SKIP_WARNING,
+            }
+            current_config = Config().load()
+            current_config.review_approval_mode = reverse_map.get(
+                index, Config.ReviewApprovalMode.MANUAL
+            )
+            current_config.save()
+
+        combo.currentIndexChanged.connect(on_changed)
+        card.add_right_widget(combo)
+        parent.addWidget(card)
+
+    # AI 审校上文行数
+    def add_widget_review_preceding_lines(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        card = SettingCard(
+            title=Localizer.get().expert_settings_page_review_preceding_lines,
+            description=Localizer.get().expert_settings_page_review_preceding_lines_desc,
+            parent=self,
+        )
+
+        spin = SpinBox(card)
+        spin.setRange(0, 100)
+        spin.setValue(config.review_preceding_lines)
+
+        def on_changed(value: int) -> None:
+            current_config = Config().load()
+            current_config.review_preceding_lines = value
+            current_config.save()
+
+        spin.valueChanged.connect(on_changed)
+        card.add_right_widget(spin)
+        parent.addWidget(card)
+
+    # AI 审校单行超时
+    def add_widget_review_timeout(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        card = SettingCard(
+            title=Localizer.get().expert_settings_page_review_timeout,
+            description=Localizer.get().expert_settings_page_review_timeout_desc,
+            parent=self,
+        )
+
+        spin = SpinBox(card)
+        spin.setRange(10, 600)
+        spin.setValue(config.review_timeout)
+
+        def on_changed(value: int) -> None:
+            current_config = Config().load()
+            current_config.review_timeout = value
+            current_config.save()
+
+        spin.valueChanged.connect(on_changed)
+        card.add_right_widget(spin)
         parent.addWidget(card)

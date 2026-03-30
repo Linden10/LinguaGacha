@@ -70,8 +70,11 @@ class GameCapture:
     @staticmethod
     def list_windows_windows() -> list[tuple[str, str]]:
         """Windows: 通过 PowerShell 获取带有可见窗口的进程列表。"""
+        # 强制 PowerShell 以 UTF-8 编码输出，避免 CJK 等非 ASCII 标题出现乱码
         ps_script = (
-            "Get-Process"
+            "$OutputEncoding = [System.Text.Encoding]::UTF8;"
+            " [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
+            " Get-Process"
             " | Where-Object {$_.MainWindowTitle -ne ''}"
             ' | ForEach-Object { $_.MainWindowTitle + "`t" + $_.Id }'
         )
@@ -84,7 +87,9 @@ class GameCapture:
             return []
 
         windows: list[tuple[str, str]] = []
-        for line in result.stdout.decode(errors="replace").strip().splitlines():
+        for line in (
+            result.stdout.decode("utf-8", errors="replace").strip().splitlines()
+        ):
             parts = line.rsplit("\t", 1)
             if len(parts) == 2 and parts[0].strip():
                 windows.append((parts[0].strip(), parts[1].strip()))
