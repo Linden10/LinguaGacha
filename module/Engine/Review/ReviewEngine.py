@@ -175,6 +175,7 @@ class ReviewEngine(Base):
             fail_count = 0
             error_count = 0
 
+            # 使用 while 而非 for：支持重试时不推进索引（continue 回到同一条目）
             i = 0
             while i < total:
                 if self.should_stop():
@@ -380,7 +381,10 @@ class ReviewEngine(Base):
         return self.DECISION_DENY
 
     def apply_fix_if_needed(self, result: ReviewResult, item: Item) -> None:
-        """若结果为 FIX 且有修正文本，将修正写回数据层。"""
+        """若结果为 FIX 且有修正文本，将修正写回数据层。
+
+        注意：会直接修改 item.dst，使后续上文引用的也是修正后的译文。
+        """
         if result.verdict != ReviewVerdict.FIX or not result.corrected:
             return
 

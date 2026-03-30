@@ -701,6 +701,7 @@ class ReviewPage(Base, QWidget):
                 # 待批结果不追加到永久日志，仅在末尾展示
                 self.awaiting_approval = True
                 self.update_buttons()
+                # 空行分隔已完成日志和待批项，使其视觉上更突出
                 output = "\n".join(self.output_lines + ["", line])
             else:
                 self.output_lines.append(line)
