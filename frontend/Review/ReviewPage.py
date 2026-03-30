@@ -11,6 +11,7 @@ from qfluentwidgets import SwitchButton
 
 from base.Base import Base
 from base.BaseIcon import BaseIcon
+from model.Item import Item
 from module.Config import Config
 from module.Data.DataManager import DataManager
 from module.Engine.Engine import Engine
@@ -449,7 +450,7 @@ class ReviewPage(Base, QWidget):
         )
 
     @staticmethod
-    def filter_translated_items(items: list) -> list:
+    def filter_translated_items(items: list[Item]) -> list[Item]:
         """筛选已翻译（可审校）的条目。"""
         return [
             item
@@ -462,7 +463,7 @@ class ReviewPage(Base, QWidget):
             )
         ]
 
-    def start_review_items(self, items: list) -> None:
+    def start_review_items(self, items: list[Item]) -> None:
         """从外部（如校对页右键菜单）直接启动审校。"""
         if not items:
             TaskRunnerLifecycle.emit_no_items_warning(self)

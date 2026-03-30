@@ -79,7 +79,14 @@ class GameCapture:
         """开始录制视频或音频。
 
         录制将在后台持续进行，调用 stop_recording() 结束并获取文件路径。
+        IMAGE 模式不适用此方法，请使用 capture_screenshot()。
         """
+        from module.Config import Config
+
+        if mode == Config.CaptureMode.IMAGE:
+            LogManager.get().warning("Use capture_screenshot() for IMAGE mode")
+            return False
+
         if not self.is_available():
             LogManager.get().warning("ffmpeg not found, recording disabled")
             return False
@@ -170,7 +177,12 @@ class GameCapture:
 
     @staticmethod
     def build_screenshot_cmd(window_title: str) -> list[str]:
-        """构建截图命令（跨平台）。"""
+        """构建截图命令（跨平台）。
+
+        Windows: 通过 gdigrab 按窗口标题捕获。
+        macOS:   avfoundation 仅支持按屏幕设备索引捕获整个屏幕。
+        Linux:   x11grab 捕获整个屏幕（:0.0），暂不支持按窗口标题裁剪。
+        """
         max_w = str(GameCapture.MAX_IMAGE_WIDTH)
         if sys.platform == "win32":
             return [
@@ -396,7 +408,11 @@ class GameCapture:
 
     @staticmethod
     def send_hotkey_macos(window_title: str, key: str) -> bool:
-        """macOS: 通过 osascript 发送按键。"""
+        """macOS: 通过 osascript 发送按键。
+
+        注意：window_title 被用作 AppleScript 的应用名称，
+        当窗口标题与应用名称不同时可能无法正常工作。
+        """
         script = (
             f'tell application "{window_title}" to activate\n'
             f"delay 0.1\n"

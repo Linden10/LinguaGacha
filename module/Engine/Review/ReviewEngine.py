@@ -29,6 +29,8 @@ class ReviewEngine(Base):
 
     # 审校自动重试上限（当 config.max_round <= 0 时的兜底）
     AUTO_RETRY_LIMIT: int = 3
+    # 发送热键后等待游戏画面更新的延迟（秒）
+    HOTKEY_SETTLE_DELAY: float = 0.5
 
     def __init__(self) -> None:
         super().__init__()
@@ -175,7 +177,7 @@ class ReviewEngine(Base):
                             config.review_capture_window,
                             config.review_capture_hotkey,
                         )
-                        time.sleep(0.5)  # 等待游戏画面更新
+                        time.sleep(self.HOTKEY_SETTLE_DELAY)
 
                     if config.review_capture_mode == Config.CaptureMode.IMAGE:
                         screenshot_b64 = capturer.capture_screenshot(
