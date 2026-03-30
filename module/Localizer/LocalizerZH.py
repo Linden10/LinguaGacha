@@ -501,6 +501,7 @@ class LocalizerZH:
     proofreading_page_batch_reset_translation_confirm: str = (
         "确定重置全部 {COUNT} 个条目的翻译？"
     )
+    proofreading_page_review_selected: str = "AI 审校已选条目"
 
     # 工作台
     workbench_stat_file_count: str = "文件总数"
@@ -795,6 +796,23 @@ class LocalizerZH:
     review_page_scope_all: str = "审校全部文件"
     review_page_scope_file: str = "审校选定文件"
     review_page_scope_failed: str = "审校失败行"
+    review_page_scope: str = "审校范围"
+    review_page_scope_desc: str = "选择需要审校的条目范围"
+    review_page_scope_file_desc: str = "选择要审校其译文的文件"
+    review_page_no_file_selected: str = "请先选择一个文件 …"
+    review_page_capture_enable: str = "游戏窗口捕获"
+    review_page_capture_enable_desc: str = "从游戏窗口截图或录制视频/音频，辅助 AI 视觉审校（需要 ffmpeg）"
+    review_page_capture_mode: str = "捕获模式"
+    review_page_capture_mode_desc: str = "截图模式将图片发送给支持视觉的模型；视频/音频模式录制供参考"
+    review_page_capture_image: str = "截图"
+    review_page_capture_video: str = "视频"
+    review_page_capture_audio: str = "音频"
+    review_page_capture_window: str = "游戏窗口标题"
+    review_page_capture_window_desc: str = "要捕获的游戏窗口标题（需精确匹配）"
+    review_page_capture_hotkey: str = "推进热键"
+    review_page_capture_hotkey_desc: str = "发送给游戏窗口以推进对话的按键（如 Enter、Space）"
+    review_page_capture_auto_advance: str = "自动推进"
+    review_page_capture_auto_advance_desc: str = "每行审校前自动发送热键推进游戏"
     review_page_progress: str = "正在审校，第 {CURRENT} 行，共 {TOTAL} 行 …"
     review_page_done: str = "审校完成"
     review_page_stopped: str = "审校已停止"

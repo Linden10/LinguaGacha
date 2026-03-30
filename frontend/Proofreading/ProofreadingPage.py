@@ -340,6 +340,7 @@ class ProofreadingPage(Base, QWidget):
         self.table_widget.batch_reset_translation_clicked.connect(
             self.on_batch_reset_translation_clicked
         )
+        self.table_widget.batch_review_clicked.connect(self.on_batch_review_clicked)
         self.table_widget.itemSelectionChanged.connect(self.on_table_selection_changed)
         self.table_widget.set_items([], {})
 
@@ -1898,6 +1899,20 @@ class ProofreadingPage(Base, QWidget):
                 self.edit_panel.set_readonly(self.is_readonly)
 
         self.update_project_status_after_save()
+
+    # ========== AI 审校功能 ==========
+    def on_batch_review_clicked(self, items: list[Item]) -> None:
+        """右键菜单：将选中条目发送到 AI 审校。"""
+        if self.is_readonly or not items:
+            return
+
+        self.emit(
+            Base.Event.REVIEW_TASK,
+            {
+                "sub_event": Base.SubEvent.REQUEST,
+                "items": items,
+            },
+        )
 
     # ========== 重新翻译功能 ==========
     def on_retranslate_clicked(self, item: Item) -> None:

@@ -7,15 +7,18 @@ from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
 from qfluentwidgets import MessageBox
 from qfluentwidgets import SpinBox
+from qfluentwidgets import SwitchButton
 
 from base.Base import Base
 from base.BaseIcon import BaseIcon
+from model.Item import Item
 from module.Config import Config
 from module.Data.DataManager import DataManager
 from module.Engine.Engine import Engine
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
+from widget.CustomLineEdit import CustomLineEdit
 from widget.SettingCard import SettingCard
 
 # ==================== 图标常量 ====================
@@ -23,12 +26,17 @@ ICON_ACTION_START: BaseIcon = BaseIcon.PLAY
 ICON_ACTION_STOP: BaseIcon = BaseIcon.CIRCLE_STOP
 ICON_NAV_REVIEW: BaseIcon = BaseIcon.CLIPBOARD_CHECK
 
+# 审校范围索引
+SCOPE_ALL: int = 0
+SCOPE_FILE: int = 1
+SCOPE_FAILED: int = 2
+
 
 class ReviewPage(Base, QWidget):
     """AI 审校页面。
 
     提供审校控制面板：选择审校范围（全部文件/选定文件/失败行）、
-    审批模式（手动/自动）、模型选择和进度展示。
+    审批模式（手动/自动）、模型选择、游戏窗口捕获和进度展示。
     """
 
     def __init__(self, text: str, window: FluentWindow) -> None:
@@ -48,7 +56,9 @@ class ReviewPage(Base, QWidget):
 
         # 添加控件
         self.add_widget_head(self.root, config)
+        self.add_widget_scope(self.root)
         self.add_widget_settings(self.root, config)
+        self.add_widget_capture(self.root, config)
         self.add_widget_progress(self.root)
 
         # 填充
@@ -58,6 +68,8 @@ class ReviewPage(Base, QWidget):
         self.subscribe(Base.Event.REVIEW_TASK, self.on_review_task_event)
         self.subscribe(Base.Event.REVIEW_PROGRESS, self.on_review_progress)
         self.subscribe(Base.Event.REVIEW_REQUEST_STOP, self.on_review_stop)
+        self.subscribe(Base.Event.PROJECT_LOADED, self.on_project_loaded)
+        self.subscribe(Base.Event.PROJECT_UNLOADED, self.on_project_unloaded)
         self.subscribe_busy_state_events(self.on_engine_status_changed)
 
         # 初始化按钮状态
@@ -72,13 +84,13 @@ class ReviewPage(Base, QWidget):
         """添加顶部工具栏（开始/停止审校按钮）。"""
         self.head_command_bar = CommandBarCard()
 
-        # 开始审校按钮（带下拉菜单选择审校范围）
+        # 开始审校按钮
         self.start_action = self.head_command_bar.add_action(
             Action(
                 ICON_ACTION_START,
                 Localizer.get().review_page_start,
                 self.head_command_bar,
-                triggered=self.on_start_review_all,
+                triggered=self.on_start_review,
             )
         )
 
@@ -94,6 +106,67 @@ class ReviewPage(Base, QWidget):
         self.stop_action.setEnabled(False)
 
         parent.addWidget(self.head_command_bar)
+
+    # ==================== 审校范围 ====================
+
+    def add_widget_scope(self, parent: QVBoxLayout) -> None:
+        """添加审校范围选择（全部文件/选定文件/失败行）和文件下拉框。"""
+        # 范围选择
+        scope_card = SettingCard(
+            title=Localizer.get().review_page_scope,
+            description=Localizer.get().review_page_scope_desc,
+            parent=self,
+        )
+        self.scope_combo = ComboBox(scope_card)
+        self.scope_combo.addItems(
+            [
+                Localizer.get().review_page_scope_all,
+                Localizer.get().review_page_scope_file,
+                Localizer.get().review_page_scope_failed,
+            ]
+        )
+        self.scope_combo.setCurrentIndex(SCOPE_ALL)
+        self.scope_combo.currentIndexChanged.connect(self.on_scope_changed)
+        scope_card.add_right_widget(self.scope_combo)
+        parent.addWidget(scope_card)
+
+        # 文件选择（仅"选定文件"范围下可见）
+        file_card = SettingCard(
+            title=Localizer.get().review_page_scope_file,
+            description=Localizer.get().review_page_scope_file_desc,
+            parent=self,
+        )
+        self.file_combo = ComboBox(file_card)
+        self.file_combo.setMinimumWidth(260)
+        file_card.add_right_widget(self.file_combo)
+        parent.addWidget(file_card)
+
+        self.file_card = file_card
+        self.file_card.setVisible(False)
+
+        # 尝试填充文件列表
+        self.populate_file_combo()
+
+    def populate_file_combo(self) -> None:
+        """从当前工程填充文件下拉框。"""
+        self.file_combo.clear()
+        dm = DataManager.get()
+        if not dm.is_loaded():
+            return
+
+        items = dm.get_all_items()
+        file_paths: set[str] = set()
+        for item in items:
+            fp = item.get_file_path()
+            if fp:
+                file_paths.add(fp)
+
+        for path in sorted(file_paths):
+            self.file_combo.addItem(path, userData=path)
+
+    def on_scope_changed(self, index: int) -> None:
+        """审校范围变更：控制文件下拉框可见性。"""
+        self.file_card.setVisible(index == SCOPE_FILE)
 
     # ==================== 设置区域 ====================
 
@@ -126,7 +199,6 @@ class ReviewPage(Base, QWidget):
                 Localizer.get().review_page_approval_auto_skip,
             ]
         )
-        # 设置当前值
         mode_map = {
             Config.ReviewApprovalMode.MANUAL: 0,
             Config.ReviewApprovalMode.AUTO_ACCEPT: 1,
@@ -164,6 +236,104 @@ class ReviewPage(Base, QWidget):
         self.timeout_spin.valueChanged.connect(self.on_timeout_changed)
         timeout_card.add_right_widget(self.timeout_spin)
         parent.addWidget(timeout_card)
+
+    # ==================== 游戏窗口捕获区域 ====================
+
+    def add_widget_capture(self, parent: QVBoxLayout, config: Config) -> None:
+        """添加游戏窗口捕获设置。"""
+        # 启用开关
+        capture_card = SettingCard(
+            title=Localizer.get().review_page_capture_enable,
+            description=Localizer.get().review_page_capture_enable_desc,
+            parent=self,
+        )
+        self.capture_switch = SwitchButton(capture_card)
+        self.capture_switch.setChecked(config.review_capture_enable)
+        self.capture_switch.checkedChanged.connect(self.on_capture_enable_changed)
+        capture_card.add_right_widget(self.capture_switch)
+        parent.addWidget(capture_card)
+
+        # 捕获模式
+        mode_card = SettingCard(
+            title=Localizer.get().review_page_capture_mode,
+            description=Localizer.get().review_page_capture_mode_desc,
+            parent=self,
+        )
+        self.capture_mode_combo = ComboBox(mode_card)
+        self.capture_mode_combo.addItems(
+            [
+                Localizer.get().review_page_capture_image,
+                Localizer.get().review_page_capture_video,
+                Localizer.get().review_page_capture_audio,
+            ]
+        )
+        capture_mode_map = {
+            Config.CaptureMode.IMAGE: 0,
+            Config.CaptureMode.VIDEO: 1,
+            Config.CaptureMode.AUDIO: 2,
+        }
+        self.capture_mode_combo.setCurrentIndex(
+            capture_mode_map.get(config.review_capture_mode, 0)
+        )
+        self.capture_mode_combo.currentIndexChanged.connect(
+            self.on_capture_mode_changed
+        )
+        mode_card.add_right_widget(self.capture_mode_combo)
+        parent.addWidget(mode_card)
+        self.capture_mode_card = mode_card
+
+        # 游戏窗口标题
+        window_card = SettingCard(
+            title=Localizer.get().review_page_capture_window,
+            description=Localizer.get().review_page_capture_window_desc,
+            parent=self,
+        )
+        self.capture_window_edit = CustomLineEdit(window_card)
+        self.capture_window_edit.setMinimumWidth(200)
+        self.capture_window_edit.setText(config.review_capture_window)
+        self.capture_window_edit.editingFinished.connect(self.on_capture_window_changed)
+        window_card.add_right_widget(self.capture_window_edit)
+        parent.addWidget(window_card)
+        self.capture_window_card = window_card
+
+        # 热键
+        hotkey_card = SettingCard(
+            title=Localizer.get().review_page_capture_hotkey,
+            description=Localizer.get().review_page_capture_hotkey_desc,
+            parent=self,
+        )
+        self.capture_hotkey_edit = CustomLineEdit(hotkey_card)
+        self.capture_hotkey_edit.setMinimumWidth(120)
+        self.capture_hotkey_edit.setText(config.review_capture_hotkey)
+        self.capture_hotkey_edit.editingFinished.connect(self.on_capture_hotkey_changed)
+        hotkey_card.add_right_widget(self.capture_hotkey_edit)
+        parent.addWidget(hotkey_card)
+        self.capture_hotkey_card = hotkey_card
+
+        # 自动推进
+        auto_card = SettingCard(
+            title=Localizer.get().review_page_capture_auto_advance,
+            description=Localizer.get().review_page_capture_auto_advance_desc,
+            parent=self,
+        )
+        self.capture_auto_switch = SwitchButton(auto_card)
+        self.capture_auto_switch.setChecked(config.review_capture_auto_advance)
+        self.capture_auto_switch.checkedChanged.connect(
+            self.on_capture_auto_advance_changed
+        )
+        auto_card.add_right_widget(self.capture_auto_switch)
+        parent.addWidget(auto_card)
+        self.capture_auto_card = auto_card
+
+        # 根据开关初始化可见性
+        self.update_capture_visibility(config.review_capture_enable)
+
+    def update_capture_visibility(self, enabled: bool) -> None:
+        """根据捕获开关控制子设置项的可见性。"""
+        self.capture_mode_card.setVisible(enabled)
+        self.capture_window_card.setVisible(enabled)
+        self.capture_hotkey_card.setVisible(enabled)
+        self.capture_auto_card.setVisible(enabled)
 
     # ==================== 进度区域 ====================
 
@@ -204,10 +374,10 @@ class ReviewPage(Base, QWidget):
 
         self.model_combo.setCurrentIndex(selected_index)
 
-    # ==================== 事件处理 ====================
+    # ==================== 审校启动 ====================
 
-    def on_start_review_all(self) -> None:
-        """开始审校全部文件。"""
+    def on_start_review(self) -> None:
+        """根据当前范围选择启动审校。"""
         dm = DataManager.get()
         if not dm.is_loaded():
             self.emit(
@@ -219,18 +389,41 @@ class ReviewPage(Base, QWidget):
             )
             return
 
-        # 获取所有已翻译条目
+        scope_index = self.scope_combo.currentIndex()
         items = dm.get_all_items()
-        review_items = [
-            item
-            for item in items
-            if item.status
-            in (
-                Base.ProjectStatus.PROCESSED,
-                Base.ProjectStatus.PROCESSED_IN_PAST,
-                Base.ProjectStatus.ERROR,
-            )
-        ]
+
+        if scope_index == SCOPE_ALL:
+            # 审校全部已翻译条目
+            review_items = self.filter_translated_items(items)
+            scope_desc = Localizer.get().review_page_scope_all
+
+        elif scope_index == SCOPE_FILE:
+            # 审校选定文件的已翻译条目
+            selected_file = self.file_combo.currentData()
+            if not selected_file:
+                self.emit(
+                    Base.Event.TOAST,
+                    {
+                        "type": Base.ToastType.WARNING,
+                        "message": Localizer.get().review_page_no_file_selected,
+                    },
+                )
+                return
+            file_items = [
+                item for item in items if item.get_file_path() == selected_file
+            ]
+            review_items = self.filter_translated_items(file_items)
+            scope_desc = Localizer.get().review_page_scope_file
+
+        elif scope_index == SCOPE_FAILED:
+            # 仅审校失败 / 错误行
+            review_items = [
+                item for item in items if item.status == Base.ProjectStatus.ERROR
+            ]
+            scope_desc = Localizer.get().review_page_scope_failed
+
+        else:
+            return
 
         if not review_items:
             TaskRunnerLifecycle.emit_no_items_warning(self)
@@ -239,7 +432,7 @@ class ReviewPage(Base, QWidget):
         # 确认对话框
         message_box = MessageBox(
             Localizer.get().confirm,
-            Localizer.get().review_page_scope_all,
+            scope_desc,
             self.window_ref,
         )
         message_box.yesButton.setText(Localizer.get().confirm)
@@ -256,12 +449,42 @@ class ReviewPage(Base, QWidget):
             },
         )
 
+    @staticmethod
+    def filter_translated_items(items: list[Item]) -> list[Item]:
+        """筛选已翻译（可审校）的条目。"""
+        return [
+            item
+            for item in items
+            if item.status
+            in (
+                Base.ProjectStatus.PROCESSED,
+                Base.ProjectStatus.PROCESSED_IN_PAST,
+                Base.ProjectStatus.ERROR,
+            )
+        ]
+
+    def start_review_items(self, items: list[Item]) -> None:
+        """从外部（如校对页右键菜单）直接启动审校。"""
+        if not items:
+            TaskRunnerLifecycle.emit_no_items_warning(self)
+            return
+
+        self.emit(
+            Base.Event.REVIEW_TASK,
+            {
+                "sub_event": Base.SubEvent.REQUEST,
+                "items": items,
+            },
+        )
+
     def on_stop_review(self) -> None:
         """停止审校。"""
         self.emit(
             Base.Event.REVIEW_REQUEST_STOP,
             {"sub_event": Base.SubEvent.REQUEST},
         )
+
+    # ==================== 事件处理 ====================
 
     def on_review_task_event(self, event: Base.Event, data: dict) -> None:
         """响应审校任务生命周期事件。"""
@@ -319,6 +542,14 @@ class ReviewPage(Base, QWidget):
             return
         self.update_buttons()
 
+    def on_project_loaded(self, event: Base.Event, data: dict) -> None:
+        """工程加载后刷新文件列表。"""
+        self.populate_file_combo()
+
+    def on_project_unloaded(self, event: Base.Event, data: dict) -> None:
+        """工程卸载后清空文件列表。"""
+        self.file_combo.clear()
+
     def update_buttons(self) -> None:
         """根据引擎状态更新按钮可用性。"""
         status = Engine.get().get_status()
@@ -330,10 +561,17 @@ class ReviewPage(Base, QWidget):
         self.stop_action.setEnabled(is_reviewing and not is_stopping)
 
         # 审校过程中禁用设置
+        self.scope_combo.setEnabled(not is_busy)
+        self.file_combo.setEnabled(not is_busy)
         self.model_combo.setEnabled(not is_busy)
         self.approval_combo.setEnabled(not is_busy)
         self.preceding_spin.setEnabled(not is_busy)
         self.timeout_spin.setEnabled(not is_busy)
+        self.capture_switch.setEnabled(not is_busy)
+        self.capture_mode_combo.setEnabled(not is_busy)
+        self.capture_window_edit.setEnabled(not is_busy)
+        self.capture_hotkey_edit.setEnabled(not is_busy)
+        self.capture_auto_switch.setEnabled(not is_busy)
 
     # ==================== 设置变更回调 ====================
 
@@ -367,4 +605,40 @@ class ReviewPage(Base, QWidget):
         """单行超时变更。"""
         config = Config().load()
         config.review_timeout = value
+        config.save()
+
+    def on_capture_enable_changed(self, checked: bool) -> None:
+        """捕获开关变更。"""
+        config = Config().load()
+        config.review_capture_enable = checked
+        config.save()
+        self.update_capture_visibility(checked)
+
+    def on_capture_mode_changed(self, index: int) -> None:
+        """捕获模式变更。"""
+        mode_map = {
+            0: Config.CaptureMode.IMAGE,
+            1: Config.CaptureMode.VIDEO,
+            2: Config.CaptureMode.AUDIO,
+        }
+        config = Config().load()
+        config.review_capture_mode = mode_map.get(index, Config.CaptureMode.IMAGE)
+        config.save()
+
+    def on_capture_window_changed(self) -> None:
+        """游戏窗口标题变更。"""
+        config = Config().load()
+        config.review_capture_window = self.capture_window_edit.text().strip()
+        config.save()
+
+    def on_capture_hotkey_changed(self) -> None:
+        """热键变更。"""
+        config = Config().load()
+        config.review_capture_hotkey = self.capture_hotkey_edit.text().strip()
+        config.save()
+
+    def on_capture_auto_advance_changed(self, checked: bool) -> None:
+        """自动推进开关变更。"""
+        config = Config().load()
+        config.review_capture_auto_advance = checked
         config.save()

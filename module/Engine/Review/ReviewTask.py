@@ -40,6 +40,7 @@ class ReviewTask:
         precedings: list[Item],
         quality_snapshot: QualityRuleSnapshot | None = None,
         stop_checker: Callable[[], bool] | None = None,
+        screenshot_b64: str = "",
     ) -> None:
         self.config: Config = config
         self.model: dict[str, Any] = model
@@ -47,6 +48,7 @@ class ReviewTask:
         self.precedings: list[Item] = precedings
         self.quality_snapshot: QualityRuleSnapshot | None = quality_snapshot
         self.stop_checker: Callable[[], bool] | None = stop_checker
+        self.screenshot_b64: str = screenshot_b64
 
     def start(self) -> list[ReviewResult]:
         """执行审校请求并返回逐行审校结果。"""
@@ -150,6 +152,22 @@ class ReviewTask:
         )
 
         user_message = "\n\n".join(user_parts)
+
+        # 如果有截图，使用多模态消息格式（OpenAI vision API 兼容格式）
+        if self.screenshot_b64:
+            user_content: list[dict[str, Any]] = [
+                {"type": "text", "text": user_message},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{self.screenshot_b64}",
+                    },
+                },
+            ]
+            return [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
 
         return [
             {"role": "system", "content": system_prompt},

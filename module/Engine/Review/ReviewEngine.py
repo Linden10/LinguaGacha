@@ -15,6 +15,7 @@ from module.Engine.Review.ReviewModels import ReviewResult
 from module.Engine.Review.ReviewModels import ReviewVerdict
 from module.Engine.Review.ReviewTask import ReviewTask
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
+from module.GameCapture.GameCapture import GameCapture
 from module.Localizer.Localizer import Localizer
 from module.QualityRule.QualityRuleSnapshot import QualityRuleSnapshot
 
@@ -28,6 +29,8 @@ class ReviewEngine(Base):
 
     # 审校自动重试上限（当 config.max_round <= 0 时的兜底）
     AUTO_RETRY_LIMIT: int = 3
+    # 发送热键后等待游戏画面更新的延迟（秒）
+    HOTKEY_SETTLE_DELAY: float = 0.5
 
     def __init__(self) -> None:
         super().__init__()
@@ -39,6 +42,10 @@ class ReviewEngine(Base):
         # 审校结果存储（内存中，UI 读取用）
         self.results: list[ReviewResult] = []
         self.progress: ReviewProgressSnapshot = ReviewProgressSnapshot()
+
+        # 注册事件
+        self.subscribe(Base.Event.REVIEW_TASK, self.review_event)
+        self.subscribe(Base.Event.REVIEW_REQUEST_STOP, self.stop_event)
 
     def get_results(self) -> list[ReviewResult]:
         """获取当前所有审校结果（线程安全）。"""
@@ -106,6 +113,7 @@ class ReviewEngine(Base):
     def run_review(self, items: list[Item]) -> None:
         """后台线程：执行审校任务主循环。"""
         final_status = "FAILED"
+        capturer: GameCapture | None = None
 
         try:
             config = Config().load()
@@ -131,6 +139,15 @@ class ReviewEngine(Base):
             if max_retries <= 0:
                 max_retries = self.AUTO_RETRY_LIMIT
 
+            # 初始化游戏窗口捕获（仅截图模式在逐行循环中自动触发）
+            capture_enabled = (
+                config.review_capture_enable
+                and config.review_capture_window
+                and GameCapture.is_available()
+            )
+            if capture_enabled:
+                capturer = GameCapture()
+
             # 逐条审校（每条携带上文）
             total = len(items)
             reviewed = 0
@@ -149,6 +166,24 @@ class ReviewEngine(Base):
                 start_idx = max(0, i - preceding_count)
                 precedings = items[start_idx:i]
 
+                # 自动推进游戏并捕获截图
+                screenshot_b64 = ""
+                if capture_enabled and capturer is not None:
+                    if (
+                        config.review_capture_auto_advance
+                        and config.review_capture_hotkey
+                    ):
+                        capturer.send_hotkey(
+                            config.review_capture_window,
+                            config.review_capture_hotkey,
+                        )
+                        time.sleep(self.HOTKEY_SETTLE_DELAY)
+
+                    if config.review_capture_mode == Config.CaptureMode.IMAGE:
+                        screenshot_b64 = capturer.capture_screenshot(
+                            config.review_capture_window
+                        )
+
                 # 执行审校（支持重试）
                 result = self.review_single_item_with_retry(
                     config=config,
@@ -157,6 +192,7 @@ class ReviewEngine(Base):
                     precedings=precedings,
                     quality_snapshot=quality_snapshot,
                     max_retries=max_retries,
+                    screenshot_b64=screenshot_b64,
                 )
 
                 # 汇总结果
@@ -220,6 +256,7 @@ class ReviewEngine(Base):
         precedings: list[Item],
         quality_snapshot: QualityRuleSnapshot | None,
         max_retries: int,
+        screenshot_b64: str = "",
     ) -> ReviewResult:
         """审校单条条目，支持重试。"""
         for attempt in range(max_retries):
@@ -238,6 +275,7 @@ class ReviewEngine(Base):
                 precedings=precedings,
                 quality_snapshot=quality_snapshot,
                 stop_checker=self.should_stop,
+                screenshot_b64=screenshot_b64,
             )
 
             try:

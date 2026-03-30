@@ -44,6 +44,11 @@ class Config:
         AUTO_ACCEPT = "AUTO_ACCEPT"  # 自动接受 AI 建议
         AUTO_SKIP_WARNING = "AUTO_SKIP_WARNING"  # 仅自动接受高置信度建议
 
+    class CaptureMode(StrEnum):
+        IMAGE = "IMAGE"  # 截图
+        VIDEO = "VIDEO"  # 录制视频
+        AUDIO = "AUDIO"  # 录制音频
+
     # Application
     theme: str = Theme.LIGHT
     app_language: BaseLanguage.Enum = BaseLanguage.Enum.ZH
@@ -100,6 +105,13 @@ class Config:
 
     # ReviewPage — 自定义审校提示词
     review_custom_prompt_default_preset: str = ""
+
+    # ReviewPage — 游戏窗口捕获
+    review_capture_enable: bool = False  # 是否启用游戏窗口捕获
+    review_capture_mode: str = CaptureMode.IMAGE  # 捕获模式（截图 / 录像 / 录音）
+    review_capture_window: str = ""  # 游戏窗口标题
+    review_capture_hotkey: str = ""  # 发送给游戏窗口的热键（如 Enter、Space）
+    review_capture_auto_advance: bool = False  # 每行审校前自动发送热键推进游戏
 
     # GlossaryPage
     glossary_default_preset: str = ""
