@@ -67,6 +67,11 @@ class Base:
         WORKBENCH_SNAPSHOT = "WORKBENCH_SNAPSHOT"  # 工作台 - 快照更新（跨线程回到 UI）
         CONFIG_UPDATED = "CONFIG_UPDATED"  # 配置 - 已更新
         QUALITY_RULE_UPDATE = "QUALITY_RULE_UPDATE"  # 质量规则更新
+        REVIEW_TASK = "REVIEW_TASK"  # AI 审校 - 任务生命周期事件（发起/运行/结束）
+        REVIEW_REQUEST_STOP = (
+            "REVIEW_REQUEST_STOP"  # AI 审校 - 停止当前任务请求链路（REQUEST/RUN）
+        )
+        REVIEW_PROGRESS = "REVIEW_PROGRESS"  # AI 审校 - 进度快照更新
 
     # 通用生命周期子事件
     # 为什么需要它：多数事件都遵循“请求 -> 运行 -> 更新 -> 完成/失败”的同构流程，
@@ -106,6 +111,7 @@ class Base:
         APITEST = "APITEST"
         TRANSLATION = "TRANSLATION"
         ANALYSIS = "ANALYSIS"
+        REVIEW = "REVIEW"
 
     # 任务状态
     class TaskStatus(StrEnum):
@@ -114,6 +120,7 @@ class Base:
         TESTING = "TESTING"  # 测试中
         ANALYZING = "ANALYZING"  # 分析中
         TRANSLATING = "TRANSLATING"  # 翻译中
+        REVIEWING = "REVIEWING"  # AI 审校中
         STOPPING = "STOPPING"  # 停止中
 
     # 项目状态
@@ -150,6 +157,8 @@ class Base:
         Event.ANALYSIS_REQUEST_STOP,
         Event.ANALYSIS_RESET_ALL,
         Event.ANALYSIS_RESET_FAILED,
+        Event.REVIEW_TASK,
+        Event.REVIEW_REQUEST_STOP,
     )
     RESET_PROGRESS_EVENTS: tuple[Event, ...] = (
         Event.TRANSLATION_RESET_ALL,
@@ -160,6 +169,7 @@ class Base:
     ENGINE_BUSY_STATUSES: tuple[TaskStatus, ...] = (
         TaskStatus.TRANSLATING,
         TaskStatus.ANALYZING,
+        TaskStatus.REVIEWING,
         TaskStatus.STOPPING,
     )
 

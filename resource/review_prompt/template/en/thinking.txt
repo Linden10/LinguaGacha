@@ -1,0 +1,7 @@
+Before outputting the results, you must first perform **structured thinking** within the <why>...</why> tags according to the following steps:
+<why>
+[Context Analysis]: Summarize the scene context from the preceding lines and identify the speaker, tone, and emotional state.
+[Glossary Check]: Verify that all glossary terms are correctly applied in context.
+[Quality Issues]: Identify any pronoun mismatches, untranslated text, censorship, readability problems, or typos.
+[Corrections]: For each line that needs fixing, briefly note what was wrong and the correction logic.
+</why>

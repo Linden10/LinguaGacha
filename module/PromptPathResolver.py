@@ -12,6 +12,7 @@ class PromptPathResolver:
     class TaskType(StrEnum):
         TRANSLATION = "translation"
         ANALYSIS = "analysis"
+        REVIEW = "review"
 
     class PresetSource(StrEnum):
         BUILTIN = "builtin"

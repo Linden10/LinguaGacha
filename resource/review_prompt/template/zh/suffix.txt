@@ -1,0 +1,8 @@
+然后使用JSONLINE输出审校结果，无需额外说明或解释：
+```jsonline
+{"<序号>":"<审校结论>","corrected":"<校正后的译文，PASS 时留空>","reason":"<简要原因>"}
+```
+其中审校结论为以下之一：PASS、FIX、FAIL
+- PASS：译文准确，无需修改。"corrected" 留空。
+- FIX：译文有问题但可以修正。在 "corrected" 中提供校正后的译文。
+- FAIL：译文存在严重问题。在 "corrected" 中提供校正后的译文并在 "reason" 中说明原因。

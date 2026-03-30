@@ -39,6 +39,11 @@ class Config:
         TRANSLATED = "TRANSLATED"  # 仅用译文作上文
         BOTH = "BOTH"  # 原文与译文同时作上文
 
+    class ReviewApprovalMode(StrEnum):
+        MANUAL = "MANUAL"  # 逐行人工审批
+        AUTO_ACCEPT = "AUTO_ACCEPT"  # 自动接受 AI 建议
+        AUTO_SKIP_WARNING = "AUTO_SKIP_WARNING"  # 仅自动接受高置信度建议
+
     # Application
     theme: str = Theme.LIGHT
     app_language: BaseLanguage.Enum = BaseLanguage.Enum.ZH
@@ -79,6 +84,22 @@ class Config:
     # LaboratoryPage
     force_thinking_enable: bool = True
     mtool_optimizer_enable: bool = False
+
+    # ReviewPage — AI 审校
+    review_model_id: str = ""  # 审校使用的模型 ID，空表示使用当前激活模型
+    review_approval_mode: str = ReviewApprovalMode.MANUAL
+    review_preceding_lines: int = 10  # 审校时携带的上文行数
+    review_timeout: int = 120  # 单行审校超时（秒）
+    review_export_report_enable: bool = False  # 是否导出审校报告
+    review_export_report_path: str = ""  # 审校报告导出路径，空表示应用根目录
+    review_rate_limit: int = 0  # 审校 API 调用频率限制（每分钟），0 为不限制
+
+    # ReviewPage — 术语表审校
+    glossary_review_approval_mode: str = ReviewApprovalMode.MANUAL
+    glossary_review_batch_size: int = 50  # 术语表审校每批条目数
+
+    # ReviewPage — 自定义审校提示词
+    review_custom_prompt_default_preset: str = ""
 
     # GlossaryPage
     glossary_default_preset: str = ""
