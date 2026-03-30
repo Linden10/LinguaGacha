@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
+from qfluentwidgets import Action
 from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
 from qfluentwidgets import MessageBox
@@ -73,16 +74,22 @@ class ReviewPage(Base, QWidget):
 
         # 开始审校按钮（带下拉菜单选择审校范围）
         self.start_action = self.head_command_bar.add_action(
-            icon=ICON_ACTION_START.qicon(),
-            text=Localizer.get().review_page_start,
-            triggered=self.on_start_review_all,
+            Action(
+                ICON_ACTION_START,
+                Localizer.get().review_page_start,
+                self.head_command_bar,
+                triggered=self.on_start_review_all,
+            )
         )
 
         # 停止审校按钮
         self.stop_action = self.head_command_bar.add_action(
-            icon=ICON_ACTION_STOP.qicon(),
-            text=Localizer.get().review_page_stop,
-            triggered=self.on_stop_review,
+            Action(
+                ICON_ACTION_STOP,
+                Localizer.get().review_page_stop,
+                self.head_command_bar,
+                triggered=self.on_stop_review,
+            )
         )
         self.stop_action.setEnabled(False)
 
