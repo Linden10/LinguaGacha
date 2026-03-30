@@ -72,7 +72,8 @@ class GameCapture:
         """Windows: 通过 PowerShell 获取带有可见窗口的进程列表。"""
         # 强制 PowerShell 以 UTF-8 编码输出，避免 CJK 等非 ASCII 标题出现乱码
         ps_script = (
-            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
+            "$OutputEncoding = [System.Text.Encoding]::UTF8;"
+            " [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
             " Get-Process"
             " | Where-Object {$_.MainWindowTitle -ne ''}"
             ' | ForEach-Object { $_.MainWindowTitle + "`t" + $_.Id }'

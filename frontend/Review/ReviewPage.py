@@ -36,7 +36,8 @@ ICON_ACTION_RETRY: BaseIcon = BaseIcon.REFRESH_CW
 ICON_ACTION_ASK: BaseIcon = BaseIcon.MESSAGE_CIRCLE_QUESTION
 ICON_NAV_REVIEW: BaseIcon = BaseIcon.CLIPBOARD_CHECK
 
-# 审校范围索引
+# 进度环最大值
+RING_MAX_VALUE: int = 10000
 SCOPE_ALL: int = 0
 SCOPE_FILE: int = 1
 SCOPE_FAILED: int = 2
@@ -96,7 +97,7 @@ class ReviewPage(Base, QWidget):
 
         # 进度环
         self.ring = ProgressRing()
-        self.ring.setRange(0, 10000)
+        self.ring.setRange(0, RING_MAX_VALUE)
         self.ring.setValue(0)
         self.ring.setTextVisible(True)
         self.ring.setStrokeWidth(12)
@@ -594,15 +595,18 @@ class ReviewPage(Base, QWidget):
 
     def on_approve(self) -> None:
         """通过当前审校建议。（占位，后续实现）"""
+        pass
 
     def on_deny(self) -> None:
         """拒绝当前审校建议。（占位，后续实现）"""
+        pass
 
     def on_retry(self) -> None:
         """重试当前行的审校。（占位，后续实现）"""
+        pass
 
     def on_ask_ai(self) -> None:
-        """切换询问输入框的可见性。（占位，后续实现）"""
+        """切换询问输入框的可见性，聚焦输入框。"""
         visible = not self.inquiry_input.isVisible()
         self.inquiry_input.setVisible(visible)
         if visible:
@@ -631,6 +635,11 @@ class ReviewPage(Base, QWidget):
                     },
                 )
 
+    def set_ring_status(self, status_text: str) -> None:
+        """更新进度环的状态文字和百分比。"""
+        percent = self.ring.value() / RING_MAX_VALUE
+        self.ring.setFormat(f"{status_text}\n{percent * 100:.2f}%")
+
     def on_review_progress(self, event: Base.Event, data: dict) -> None:
         """响应审校进度更新。"""
         total = data.get("total_line", 0)
@@ -642,10 +651,8 @@ class ReviewPage(Base, QWidget):
 
         # 更新进度环
         percent = reviewed / max(1, total)
-        self.ring.setValue(int(percent * 10000))
-        self.ring.setFormat(
-            f"{Localizer.get().review_page_status_reviewing}\n{percent * 100:.2f}%"
-        )
+        self.ring.setValue(int(percent * RING_MAX_VALUE))
+        self.set_ring_status(Localizer.get().review_page_status_reviewing)
 
         # 更新统计卡片
         self.pass_card.set_value(str(pass_count))
@@ -653,13 +660,13 @@ class ReviewPage(Base, QWidget):
         self.fail_card.set_value(str(fail_count))
         self.error_card.set_value(str(error_count))
 
-        # 追加进度摘要到输出区域
+        # 在输出区域显示当前进度行（覆盖上一行避免无限增长）
         progress_text = (
             Localizer.get()
             .review_page_progress.replace("{CURRENT}", str(reviewed))
             .replace("{TOTAL}", str(total))
         )
-        self.output_text.appendPlainText(progress_text)
+        self.output_text.setPlainText(progress_text)
 
     def on_review_stop(self, event: Base.Event, data: dict) -> None:
         """响应审校停止事件。"""
@@ -723,17 +730,11 @@ class ReviewPage(Base, QWidget):
 
         # 更新进度环状态文字
         if is_stopping:
-            percent = self.ring.value() / 10000
-            self.ring.setFormat(
-                f"{Localizer.get().review_page_status_stopping}\n{percent * 100:.2f}%"
-            )
+            self.set_ring_status(Localizer.get().review_page_status_stopping)
         elif not is_reviewing and not is_busy:
             # 保留最终百分比
             if self.ring.value() > 0:
-                percent = self.ring.value() / 10000
-                self.ring.setFormat(
-                    f"{Localizer.get().review_page_status_idle}\n{percent * 100:.2f}%"
-                )
+                self.set_ring_status(Localizer.get().review_page_status_idle)
 
     # ==================== 设置变更回调 ====================
 
