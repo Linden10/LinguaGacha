@@ -56,6 +56,10 @@ class ReviewPage(Base, QWidget):
 
         self.window_ref = window
         self.is_reviewing: bool = False
+        self.awaiting_approval: bool = False
+
+        # 输出日志：累积每行审校结果的格式化文本
+        self.output_lines: list[str] = []
 
         # 载入配置
         config = Config().load()
@@ -546,6 +550,7 @@ class ReviewPage(Base, QWidget):
             return
 
         # 清空输出并开始
+        self.output_lines = []
         self.output_text.clear()
 
         self.emit(
@@ -594,16 +599,37 @@ class ReviewPage(Base, QWidget):
     # ==================== 审批操作占位 ====================
 
     def on_approve(self) -> None:
-        """通过当前审校建议。（占位，后续实现）"""
-        pass
+        """通过当前审校建议，通知引擎继续。"""
+        if not self.awaiting_approval:
+            return
+        self.awaiting_approval = False
+        self.update_buttons()
+        self.emit(
+            Base.Event.REVIEW_USER_DECISION,
+            {"decision": "approve"},
+        )
 
     def on_deny(self) -> None:
-        """拒绝当前审校建议。（占位，后续实现）"""
-        pass
+        """拒绝当前审校建议，跳过本行。"""
+        if not self.awaiting_approval:
+            return
+        self.awaiting_approval = False
+        self.update_buttons()
+        self.emit(
+            Base.Event.REVIEW_USER_DECISION,
+            {"decision": "deny"},
+        )
 
     def on_retry(self) -> None:
-        """重试当前行的审校。（占位，后续实现）"""
-        pass
+        """重试当前行的审校。"""
+        if not self.awaiting_approval:
+            return
+        self.awaiting_approval = False
+        self.update_buttons()
+        self.emit(
+            Base.Event.REVIEW_USER_DECISION,
+            {"decision": "retry"},
+        )
 
     def on_ask_ai(self) -> None:
         """切换询问输入框的可见性，聚焦输入框。"""
@@ -624,6 +650,7 @@ class ReviewPage(Base, QWidget):
 
         elif sub_event in (Base.SubEvent.DONE, Base.SubEvent.ERROR):
             self.is_reviewing = False
+            self.awaiting_approval = False
             self.update_buttons()
             final_status = data.get("final_status", "")
             if final_status == "SUCCESS":
@@ -641,13 +668,15 @@ class ReviewPage(Base, QWidget):
         self.ring.setFormat(f"{status_text}\n{percent * 100:.2f}%")
 
     def on_review_progress(self, event: Base.Event, data: dict) -> None:
-        """响应审校进度更新。"""
+        """响应审校进度更新，将每行审校结果追加到输出区域。"""
         total = data.get("total_line", 0)
         reviewed = data.get("reviewed_line", 0)
         pass_count = data.get("pass_line", 0)
         fix_count = data.get("fix_line", 0)
         fail_count = data.get("fail_line", 0)
         error_count = data.get("error_line", 0)
+        awaiting = data.get("awaiting_approval", False)
+        result_data = data.get("result")
 
         # 更新进度环
         percent = reviewed / max(1, total)
@@ -660,13 +689,83 @@ class ReviewPage(Base, QWidget):
         self.fail_card.set_value(str(fail_count))
         self.error_card.set_value(str(error_count))
 
-        # 在输出区域显示当前进度行（覆盖上一行避免无限增长）
-        progress_text = (
-            Localizer.get()
-            .review_page_progress.replace("{CURRENT}", str(reviewed))
-            .replace("{TOTAL}", str(total))
-        )
-        self.output_text.setPlainText(progress_text)
+        # 构建审校结果行并追加到输出
+        if result_data:
+            line = self.format_result_line(
+                result_data,
+                reviewed,
+                total,
+                awaiting,
+            )
+            if awaiting:
+                # 待批结果不追加到永久日志，仅在末尾展示
+                self.awaiting_approval = True
+                self.update_buttons()
+                output = "\n".join(self.output_lines + ["", line])
+            else:
+                self.output_lines.append(line)
+                output = "\n".join(self.output_lines)
+            self.output_text.setPlainText(output)
+            # 滚动到底部
+            scrollbar = self.output_text.verticalScrollBar()
+            if scrollbar:
+                scrollbar.setValue(scrollbar.maximum())
+        else:
+            # 回退：仅显示进度行
+            progress_text = (
+                Localizer.get()
+                .review_page_progress.replace("{CURRENT}", str(reviewed))
+                .replace("{TOTAL}", str(total))
+            )
+            self.output_text.setPlainText(progress_text)
+
+    @staticmethod
+    def format_result_line(
+        result_data: dict,
+        reviewed: int,
+        total: int,
+        awaiting: bool,
+    ) -> str:
+        """将单条审校结果格式化为可读文本行。"""
+        loc = Localizer.get()
+        verdict = result_data.get("verdict", "")
+        corrected = result_data.get("corrected", "")
+        reason = result_data.get("reason", "")
+        original_dst = result_data.get("original_dst", "")
+        src = result_data.get("src", "")
+
+        # 映射 verdict 到本地化标签
+        verdict_label_map = {
+            "PASS": loc.review_page_line_pass,
+            "FIX": loc.review_page_line_fix,
+            "FAIL": loc.review_page_line_fail,
+            "ERROR": loc.review_page_line_error,
+        }
+        verdict_label = verdict_label_map.get(verdict, verdict)
+
+        # 行首：[verdict] Line X/Y
+        header = f"[{verdict_label}] {reviewed}/{total}"
+        if awaiting:
+            header += f"  ⏳ {loc.review_page_awaiting}"
+
+        parts: list[str] = [header]
+
+        # 原文摘要
+        if src:
+            parts.append(f"  src: {src}")
+
+        # FIX 结果：展示修正前后对比
+        if verdict == "FIX" and corrected:
+            parts.append(f"  old: {original_dst}")
+            parts.append(f"  new: {corrected}")
+        elif original_dst:
+            parts.append(f"  dst: {original_dst}")
+
+        # 原因
+        if reason:
+            parts.append(f"  {loc.review_page_result_reason}: {reason}")
+
+        return "\n".join(parts)
 
     def on_review_stop(self, event: Base.Event, data: dict) -> None:
         """响应审校停止事件。"""
@@ -713,10 +812,11 @@ class ReviewPage(Base, QWidget):
         self.start_action.setEnabled(not is_busy)
         self.stop_action.setEnabled(is_reviewing and not is_stopping)
 
-        # 审批按钮仅在审校进行中启用
-        self.approve_action.setEnabled(is_reviewing and not is_stopping)
-        self.deny_action.setEnabled(is_reviewing and not is_stopping)
-        self.retry_action.setEnabled(is_reviewing and not is_stopping)
+        # 审批按钮仅在等待用户审批时启用
+        can_approve = is_reviewing and not is_stopping and self.awaiting_approval
+        self.approve_action.setEnabled(can_approve)
+        self.deny_action.setEnabled(can_approve)
+        self.retry_action.setEnabled(can_approve)
         self.ask_action.setEnabled(is_reviewing and not is_stopping)
 
         # 审校过程中禁用设置

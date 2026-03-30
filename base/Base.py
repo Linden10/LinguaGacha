@@ -72,6 +72,9 @@ class Base:
             "REVIEW_REQUEST_STOP"  # AI 审校 - 停止当前任务请求链路（REQUEST/RUN）
         )
         REVIEW_PROGRESS = "REVIEW_PROGRESS"  # AI 审校 - 进度快照更新
+        REVIEW_USER_DECISION = (
+            "REVIEW_USER_DECISION"  # AI 审校 - 用户审批决定（approve/deny/retry）
+        )
         GLOSSARY_REVIEW_TASK = "GLOSSARY_REVIEW_TASK"  # 术语表审校 - 任务生命周期事件
         GLOSSARY_REVIEW_REQUEST_STOP = (
             "GLOSSARY_REVIEW_REQUEST_STOP"  # 术语表审校 - 停止请求链路
