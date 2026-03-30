@@ -273,6 +273,10 @@ class SettingCard(CardWidget):
         if callable(init):
             init(self)
 
+    def set_title(self, title: str) -> None:
+        # 对外统一标题更新入口，保持多行拆分逻辑一致。
+        self.text_block.set_title(title)
+
     def set_description(self, description: str) -> None:
         # 对外统一描述更新入口，保持多行拆分逻辑一致。
         self.text_block.set_description(description)
