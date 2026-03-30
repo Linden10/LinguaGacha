@@ -1,3 +1,4 @@
+import os
 from importlib import import_module
 from types import SimpleNamespace
 from typing import Any
@@ -16,6 +17,43 @@ from module.Localizer.Localizer import Localizer
 
 analysis_module = import_module("module.Engine.Analysis.Analysis")
 EmittedEvent = tuple[Base.Event, dict[str, object]]
+
+
+def normalize_path(path: str) -> str:
+    return os.path.normpath(path)
+
+
+def build_cli_glossary_export_paths() -> tuple[str, str, str]:
+    # CLI 导出路径是固定约定，统一收口后测试断言更容易看懂。
+    export_dir = normalize_path("/workspace/demo/project_glossary")
+    return (
+        export_dir,
+        normalize_path(f"{export_dir}/glossary.json"),
+        normalize_path(f"{export_dir}/glossary.xlsx"),
+    )
+
+
+def build_cli_glossary_done_event(exported_count: int) -> EmittedEvent:
+    # 这类断言只关心导出结果，不想让大段重复字符串把测试重点冲淡。
+    export_dir, json_path, xlsx_path = build_cli_glossary_export_paths()
+    return (
+        Base.Event.ANALYSIS_EXPORT_GLOSSARY,
+        {
+            "sub_event": Base.SubEvent.DONE,
+            "json_path": json_path,
+            "xlsx_path": xlsx_path,
+            "imported_count": 0,
+            "exported_count": exported_count,
+            "message": (
+                "术语表导出完成 …\n"
+                f"目录：{export_dir}\n"
+                f"JSON：{json_path}\n"
+                f"XLSX：{xlsx_path}\n"
+                f"术语条数：{exported_count}\n"
+                "本轮导入：0"
+            ),
+        },
+    )
 
 
 def build_context(file_path: str) -> AnalysisTaskContext:
@@ -76,6 +114,16 @@ class FakeLogManager:
         self.error_exceptions.append(e)
 
 
+def install_analysis_logger(
+    monkeypatch: pytest.MonkeyPatch,
+    logger: FakeLogManager | None = None,
+) -> FakeLogManager:
+    # 这些测试只关心事件和状态变化，不该把真实控制台日志带进来。
+    fake_logger = logger or FakeLogManager()
+    monkeypatch.setattr(analysis_module.LogManager, "get", lambda: fake_logger)
+    return fake_logger
+
+
 class ImmediateThread:
     def __init__(self, target, args=(), daemon=None) -> None:
         self.target = target
@@ -122,7 +170,7 @@ def install_analysis_import_glossary_runtime(
         lambda: fake_data_manager,
     )
     monkeypatch.setattr(analysis_module.threading, "Thread", thread_type)
-    monkeypatch.setattr(analysis_module.LogManager, "get", lambda: logger)
+    install_analysis_logger(monkeypatch, logger)
 
 
 def capture_emitted_events(
@@ -191,7 +239,7 @@ def install_analysis_start_runtime(
     fake_data_manager: object,
     quality_snapshot: object,
 ) -> None:
-    # 启动类测试都依赖同一套 DataManager 和质量快照补丁，这里集中收口。
+    # 启动类测试只验证生命周期行为，不该依赖真实提示词文件路径。
     monkeypatch.setattr(
         analysis_module.DataManager,
         "get",
@@ -202,6 +250,17 @@ def install_analysis_start_runtime(
         "capture",
         lambda: quality_snapshot,
     )
+    monkeypatch.setattr(
+        analysis_module.AnalysisTask,
+        "log_run_start",
+        lambda owner: None,
+    )
+    monkeypatch.setattr(
+        analysis_module.AnalysisTask,
+        "log_run_finish",
+        lambda final_status: None,
+    )
+    install_analysis_logger(monkeypatch)
 
 
 def build_start_config() -> Config:
@@ -219,12 +278,12 @@ def patch_start_runtime(
 ) -> None:
     # 启动路径只关心任务列表和进度快照，统一在这里替身，减少测试样板。
     monkeypatch.setattr(
-        analysis,
+        analysis.scheduler,
         "build_analysis_task_contexts",
         lambda config: task_contexts,
     )
     monkeypatch.setattr(
-        analysis,
+        analysis.scheduler,
         "build_progress_snapshot",
         lambda previous_extras, continue_mode: progress_snapshot,
     )
@@ -536,15 +595,21 @@ def test_start_creates_progress_bar_for_pending_tasks(
             max_concurrency=max_concurrency,
         ),
     )
-    monkeypatch.setattr(analysis, "log_analysis_start", lambda: None)
-    monkeypatch.setattr(analysis, "log_analysis_finish", lambda final_status: None)
+    monkeypatch.setattr(
+        analysis_module.AnalysisTask, "log_run_start", lambda owner: None
+    )
+    monkeypatch.setattr(
+        analysis_module.AnalysisTask,
+        "log_run_finish",
+        lambda final_status: None,
+    )
     monkeypatch.setattr(
         analysis,
         "emit_analysis_terminal_toast",
         lambda final_status: None,
     )
     monkeypatch.setattr(
-        analysis,
+        analysis.progress_tracker,
         "persist_progress_snapshot",
         lambda save_state: dict(analysis.extras),
     )
@@ -552,8 +617,10 @@ def test_start_creates_progress_bar_for_pending_tasks(
     def fake_execute(task_contexts, max_workers: int) -> str:
         del task_contexts, max_workers
         assert len(FakeProgressBar.instances) == 1
-        assert analysis.pipeline.console_progress is FakeProgressBar.instances[0]
-        assert analysis.pipeline.console_progress_task_id == 11
+        assert (
+            analysis.progress_tracker.console_progress is FakeProgressBar.instances[0]
+        )
+        assert analysis.progress_tracker.console_progress_task_id == 11
         return "SUCCESS"
 
     monkeypatch.setattr(analysis, "execute_task_contexts", fake_execute)
@@ -563,8 +630,8 @@ def test_start_creates_progress_bar_for_pending_tasks(
     assert len(FakeProgressBar.instances) == 1
     assert FakeProgressBar.instances[0].transient is True
     assert FakeProgressBar.instances[0].new_calls == [{"total": 5, "completed": 2}]
-    assert analysis.pipeline.console_progress is None
-    assert analysis.pipeline.console_progress_task_id is None
+    assert analysis.progress_tracker.console_progress is None
+    assert analysis.progress_tracker.console_progress_task_id is None
 
 
 def test_start_without_pending_tasks_skips_progress_bar(
@@ -598,14 +665,18 @@ def test_start_without_pending_tasks_skips_progress_bar(
         raise AssertionError("没有待执行任务时不该创建进度条")
 
     monkeypatch.setattr(analysis_module, "ProgressBar", fail_progress_bar)
-    monkeypatch.setattr(analysis, "log_analysis_finish", lambda final_status: None)
+    monkeypatch.setattr(
+        analysis_module.AnalysisTask,
+        "log_run_finish",
+        lambda final_status: None,
+    )
     monkeypatch.setattr(
         analysis,
         "emit_analysis_terminal_toast",
         lambda final_status: None,
     )
     monkeypatch.setattr(
-        analysis,
+        analysis.progress_tracker,
         "persist_progress_snapshot",
         lambda save_state: dict(analysis.extras),
     )
@@ -823,3 +894,156 @@ def test_start_success_emits_auto_import_glossary_request(
         Base.Event.ANALYSIS_IMPORT_GLOSSARY,
         {"sub_event": Base.SubEvent.REQUEST},
     ) in emitted
+
+
+def test_start_uses_cli_quality_snapshot_override(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_data_manager,
+    quality_snapshot,
+) -> None:
+    install_analysis_start_runtime(
+        monkeypatch,
+        fake_data_manager,
+        SimpleNamespace(should_not_be_used=True),
+    )
+
+    analysis = Analysis()
+    config = build_start_config()
+    patch_start_runtime(
+        monkeypatch,
+        analysis,
+        task_contexts=[],
+        progress_snapshot=build_analysis_progress_snapshot(
+            total_line=1,
+            line=1,
+            processed_line=1,
+            error_line=0,
+        ),
+    )
+
+    analysis.start(
+        {
+            "mode": Base.AnalysisMode.NEW,
+            "config": config,
+            "quality_snapshot": quality_snapshot,
+            "cli_auto_export_glossary": True,
+        }
+    )
+
+    assert analysis.quality_snapshot is quality_snapshot
+    assert analysis.cli_auto_export_glossary is True
+
+
+def test_after_analysis_done_cli_exports_glossary_files(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_data_manager,
+) -> None:
+    fake_data_manager.glossary_entries = [{"src": "A", "dst": "甲"}]
+    install_analysis_logger(monkeypatch)
+    analysis = Analysis()
+    analysis.cli_auto_export_glossary = True
+    emitted = capture_emitted_events(monkeypatch, analysis)
+    exported_paths: list[tuple[str, list[dict[str, object]]]] = []
+
+    monkeypatch.setattr(
+        analysis_module.DataManager,
+        "get",
+        lambda: fake_data_manager,
+    )
+    monkeypatch.setattr(
+        analysis_module.QualityRuleIO,
+        "export_rules",
+        lambda path_base, rules: exported_paths.append((path_base, rules)),
+    )
+
+    analysis.after_analysis_done(fake_data_manager, "SUCCESS")
+
+    assert fake_data_manager.import_expected_paths == [fake_data_manager.lg_path]
+    assert exported_paths == [
+        (
+            normalize_path("/workspace/demo/project_glossary/glossary"),
+            [{"src": "A", "dst": "甲"}],
+        )
+    ]
+    assert build_cli_glossary_done_event(1) in emitted
+
+
+def test_after_analysis_done_cli_success_with_zero_import_still_exports(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_data_manager,
+) -> None:
+    fake_data_manager.glossary_entries = []
+    install_analysis_logger(monkeypatch)
+    analysis = Analysis()
+    analysis.cli_auto_export_glossary = True
+    emitted = capture_emitted_events(monkeypatch, analysis)
+    exported_paths: list[str] = []
+
+    monkeypatch.setattr(
+        analysis_module.DataManager,
+        "get",
+        lambda: fake_data_manager,
+    )
+    monkeypatch.setattr(
+        analysis_module.QualityRuleIO,
+        "export_rules",
+        lambda path_base, rules: exported_paths.append(path_base),
+    )
+
+    analysis.after_analysis_done(fake_data_manager, "SUCCESS")
+
+    assert exported_paths == [
+        normalize_path("/workspace/demo/project_glossary/glossary")
+    ]
+    assert build_cli_glossary_done_event(0) in emitted
+
+
+def test_after_analysis_done_cli_stopped_skips_export(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_data_manager,
+) -> None:
+    install_analysis_logger(monkeypatch)
+    analysis = Analysis()
+    analysis.cli_auto_export_glossary = True
+    emitted = capture_emitted_events(monkeypatch, analysis)
+
+    monkeypatch.setattr(
+        analysis_module.DataManager,
+        "get",
+        lambda: fake_data_manager,
+    )
+
+    analysis.after_analysis_done(fake_data_manager, "STOPPED")
+
+    assert not any(
+        event == Base.Event.ANALYSIS_EXPORT_GLOSSARY for event, _data in emitted
+    )
+
+
+def test_after_analysis_done_cli_import_exception_emits_export_error(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_data_manager,
+) -> None:
+    logger = FakeLogManager()
+    analysis = Analysis()
+    analysis.cli_auto_export_glossary = True
+    emitted = capture_emitted_events(monkeypatch, analysis)
+
+    monkeypatch.setattr(analysis_module.LogManager, "get", lambda: logger)
+    monkeypatch.setattr(
+        analysis,
+        "import_analysis_candidates_sync",
+        lambda dm, expected_lg_path: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    analysis.after_analysis_done(fake_data_manager, "SUCCESS")
+
+    assert (
+        Base.Event.ANALYSIS_EXPORT_GLOSSARY,
+        {
+            "sub_event": Base.SubEvent.ERROR,
+            "message": "任务执行失败 …",
+        },
+    ) in emitted
+    assert logger.error_messages == ["任务执行失败 …"]
+    assert isinstance(logger.error_exceptions[0], RuntimeError)

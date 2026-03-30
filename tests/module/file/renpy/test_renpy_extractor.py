@@ -13,8 +13,9 @@ from module.File.RenPy.RenPyAst import TranslateBlock
 from module.File.RenPy.RenPyExtractor import RenPyExtractor
 
 from module.File.RenPy.RenPyLexer import build_skeleton
-
 from module.File.RenPy.RenPyLexer import scan_double_quoted_literals
+
+from module.File.RenPy.RenPyParser import parse_document
 
 from model.Item import Item
 
@@ -23,7 +24,6 @@ import pytest
 from base.Base import Base
 
 from module.File.RenPy.RenPyAst import RenPyDocument
-
 from module.File.RenPy.RenPyAst import Slot
 
 
@@ -45,6 +45,11 @@ def build_stmt(
     )
 
 
+def extract_items_from_text(text: str, rel_path: str = "sample.rpy") -> list[Item]:
+    doc = parse_document(text.splitlines())
+    return RenPyExtractor().extract(doc, rel_path)
+
+
 def test_select_slots_for_strings_skips_resource_path() -> None:
     extractor = RenPyExtractor()
     stmt = build_stmt(1, 'old "bg/scene.png"', StmtKind.TEMPLATE, BlockKind.STRINGS)
@@ -52,7 +57,7 @@ def test_select_slots_for_strings_skips_resource_path() -> None:
     assert extractor.select_slots_for_strings(stmt) == []
 
 
-def test_select_slots_for_label_uses_tail_group_for_name_and_dialogue() -> None:
+def test_select_slots_for_label_uses_dialogue_group_for_name_and_dialogue() -> None:
     extractor = RenPyExtractor()
     stmt = build_stmt(2, 'e "Alice" "Hello"', StmtKind.TEMPLATE, BlockKind.LABEL)
 
@@ -62,16 +67,34 @@ def test_select_slots_for_label_uses_tail_group_for_name_and_dialogue() -> None:
     assert [slot.lit_index for slot in slots] == [0, 1]
 
 
-def test_find_character_name_lit_index_ignores_parentheses_inside_literals() -> None:
+def test_select_slots_for_label_ignores_trailing_cb_name_string() -> None:
     extractor = RenPyExtractor()
     stmt = build_stmt(
-        3,
-        'Character("Ali(ce)", who_color="#fff")',
+        4,
+        '"This is karen, wife of Marco." (cb_name="卡雷")',
         StmtKind.TEMPLATE,
         BlockKind.LABEL,
     )
 
-    assert extractor.find_character_name_lit_index(stmt) == 0
+    slots = extractor.select_slots_for_label(stmt)
+
+    assert [slot.role for slot in slots] == [SlotRole.DIALOGUE]
+    assert [slot.lit_index for slot in slots] == [0]
+
+
+def test_select_slots_for_label_ignores_trailing_function_argument_string() -> None:
+    extractor = RenPyExtractor()
+    stmt = build_stmt(
+        5,
+        '"Man" "Pleasure to meet you." with PushMove("x")',
+        StmtKind.TEMPLATE,
+        BlockKind.LABEL,
+    )
+
+    slots = extractor.select_slots_for_label(stmt)
+
+    assert [slot.role for slot in slots] == [SlotRole.NAME, SlotRole.DIALOGUE]
+    assert [slot.lit_index for slot in slots] == [0, 1]
 
 
 def test_build_item_sets_status_and_extra_field() -> None:
@@ -268,7 +291,7 @@ def test_select_slots_for_strings_covers_all_guards() -> None:
     )
 
 
-def test_select_slots_for_label_covers_tail_and_name_guards(
+def test_select_slots_for_label_covers_dialogue_group_and_name_guards(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     extractor = RenPyExtractor()
@@ -281,7 +304,7 @@ def test_select_slots_for_label_covers_tail_and_name_guards(
     )
 
     stmt = build_stmt(2, 'e "a" "b"', StmtKind.TEMPLATE, BlockKind.LABEL)
-    monkeypatch.setattr(extractor, "find_tail_string_group", lambda s: [])
+    monkeypatch.setattr(extractor, "find_dialogue_string_group", lambda s, n: [])
     assert extractor.select_slots_for_label(stmt) == []
 
     extractor = RenPyExtractor()
@@ -318,7 +341,7 @@ def test_select_slots_for_label_covers_tail_and_name_guards(
     assert [v.role for v in slots] == [SlotRole.DIALOGUE]
 
 
-def test_select_slots_and_tail_and_character_helpers() -> None:
+def test_select_slots_returns_empty_for_non_label_and_non_strings_block() -> None:
     extractor = RenPyExtractor()
     block = build_block("x", BlockKind.PYTHON, [])
 
@@ -328,40 +351,6 @@ def test_select_slots_and_tail_and_character_helpers() -> None:
         )
         == []
     )
-    assert (
-        extractor.find_tail_string_group(
-            build_stmt(2, "e no_quote", StmtKind.TEMPLATE, BlockKind.LABEL)
-        )
-        == []
-    )
-
-    separated = build_stmt(3, 'e "a", "b"', StmtKind.TEMPLATE, BlockKind.LABEL)
-    assert extractor.find_tail_string_group(separated) == [1]
-
-    assert (
-        extractor.find_character_name_lit_index(
-            build_stmt(4, 'e "a"', StmtKind.TEMPLATE, BlockKind.LABEL)
-        )
-        is None
-    )
-    assert (
-        extractor.find_character_name_lit_index(
-            build_stmt(5, 'Character("a"', StmtKind.TEMPLATE, BlockKind.LABEL)
-        )
-        is None
-    )
-    no_lit_inside = build_stmt(
-        6,
-        "Character(name)",
-        StmtKind.TEMPLATE,
-        BlockKind.LABEL,
-    )
-    assert extractor.find_character_name_lit_index(no_lit_inside) is None
-    open_paren = no_lit_inside.code.find("(")
-    close_paren = no_lit_inside.code.rfind(")")
-    assert open_paren != -1
-    assert close_paren != -1
-    assert extractor.find_matching_paren(no_lit_inside, open_paren) == close_paren
 
 
 def test_extract_returns_empty_when_mapping_is_empty(
@@ -421,57 +410,74 @@ def test_select_slots_for_label_keeps_character_name_index_when_present() -> Non
     assert [v.role for v in slots] == [SlotRole.NAME, SlotRole.DIALOGUE]
 
 
-def test_find_character_name_lit_index_handles_missing_open_paren() -> None:
-    extractor = RenPyExtractor()
+def test_extract_from_inline_text_preserves_real_world_renpy_patterns() -> None:
+    cb_name_text = """
+# game/charpters/relationships.rpy:66
+translate chinese relationships_f8b6714e:
 
-    class WeirdCode(str):
-        def lstrip(self, chars=None):
-            del chars
-            return "Character("
+    # "This is karen, wife of Marco." (cb_name="kr")
+    "This is karen, wife of Marco." (cb_name="卡雷")
+""".strip()
+    cb_name_items = extract_items_from_text(cb_name_text, "cb_name_sample.rpy")
+    cb_name_item = cb_name_items[0]
 
-        def find(
-            self,
-            sub: str,
-            start: object | None = 0,
-            end: object | None = None,
-        ) -> int:
-            del sub
-            del start
-            del end
-            return -1
+    assert cb_name_item.get_name_src() is None
+    assert cb_name_item.get_src() == "This is karen, wife of Marco."
+    assert cb_name_item.get_dst() == "This is karen, wife of Marco."
 
-    stmt = StatementNode(
-        line_no=1,
-        raw_line="Character",
-        indent="",
-        code=WeirdCode("Character"),
-        stmt_kind=StmtKind.TEMPLATE,
-        block_kind=BlockKind.LABEL,
-        literals=[],
-        strict_key="",
-        relaxed_key="",
-        string_count=0,
-    )
+    chapter_text = """
+# game/chapter_5.rpy:108
+translate schinese chapter_5_d8798af6:
 
-    assert extractor.find_character_name_lit_index(stmt) is None
+    # Character("Man") "Hello there!"
+    Character("Man") "你好啊123！"
+
+# game/chapter_5.rpy:246
+translate schinese chapter_5_a7d2fe38:
+
+    # "Boy" "I'm s-supposed to be that thing?!" with vpunch
+    "Boy" "" with vpunch
+""".strip()
+    chapter_items = extract_items_from_text(chapter_text, "chapter_inline_sample.rpy")
+    character_item = chapter_items[0]
+    vpunch_item = chapter_items[1]
+
+    assert character_item.get_name_src() == "Man"
+    assert character_item.get_src() == "Hello there!"
+    assert character_item.get_name_dst() == "Man"
+    assert character_item.get_dst() == "你好啊123！"
+
+    assert vpunch_item.get_name_src() == "Boy"
+    assert vpunch_item.get_src() == "I'm s-supposed to be that thing?!"
+    assert vpunch_item.get_name_dst() == "Boy"
+    assert vpunch_item.get_dst() == ""
+
+    pushmove_text = """
+# game/chapter_5.rpy:220
+translate schinese chapter_5_79f2f130:
+
+    # "Man" "Pleasure to meet you." with PushMove("x")
+    "Man" ""
+""".strip()
+    pushmove_items = extract_items_from_text(pushmove_text, "pushmove_sample.rpy")
+    pushmove_item = pushmove_items[0]
+
+    assert pushmove_item.get_name_src() == "Man"
+    assert pushmove_item.get_src() == "Pleasure to meet you."
+    assert pushmove_item.get_name_dst() == "Man"
+    assert pushmove_item.get_dst() == ""
 
 
-def test_find_character_name_lit_index_ignores_literals_outside_call() -> None:
-    extractor = RenPyExtractor()
-    stmt = build_stmt(3, 'Character(name) "tail"', StmtKind.TEMPLATE, BlockKind.LABEL)
-
-    assert extractor.find_character_name_lit_index(stmt) is None
-
-
-def test_find_matching_paren_handles_nested_parentheses() -> None:
+def test_select_slots_for_label_handles_inline_pushmove_case() -> None:
     extractor = RenPyExtractor()
     stmt = build_stmt(
-        4,
-        'Character(func("a"))',
+        68,
+        '"Man" "Pleasure to meet you." with PushMove("x")',
         StmtKind.TEMPLATE,
         BlockKind.LABEL,
     )
-    open_pos = stmt.code.find("(")
 
-    assert open_pos != -1
-    assert extractor.find_matching_paren(stmt, open_pos) == len(stmt.code) - 1
+    slots = extractor.select_slots_for_label(stmt)
+
+    assert [slot.role for slot in slots] == [SlotRole.NAME, SlotRole.DIALOGUE]
+    assert [slot.lit_index for slot in slots] == [0, 1]

@@ -16,6 +16,7 @@ class FakeDataManager:
         self.analysis_extras: dict[str, object] = {}
         self.analysis_item_checkpoints: dict[int, dict[str, object]] = {}
         self.analysis_candidate_count = 0
+        self.glossary_entries: list[dict[str, object]] = []
         self.updated_rules: list[dict] = []
         self.clear_calls = 0
         self.open_calls = 0
@@ -91,6 +92,18 @@ class FakeDataManager:
         self.analysis_extras = self.normalize_analysis_progress_snapshot(snapshot)
         return dict(self.analysis_extras)
 
+    def refresh_analysis_progress_snapshot_cache(self) -> dict[str, object]:
+        summary = self.get_analysis_status_summary()
+        snapshot = {
+            **self.analysis_extras,
+            "total_line": int(summary.get("total_line", 0) or 0),
+            "line": int(summary.get("line", 0) or 0),
+            "processed_line": int(summary.get("processed_line", 0) or 0),
+            "error_line": int(summary.get("error_line", 0) or 0),
+        }
+        self.analysis_extras = self.normalize_analysis_progress_snapshot(snapshot)
+        return dict(self.analysis_extras)
+
     def get_analysis_status_summary(self) -> dict[str, object]:
         total_line = sum(1 for item in self.items if item.get_src().strip() != "")
         processed_line = 0
@@ -157,6 +170,51 @@ class FakeDataManager:
             }
         return changed_count
 
+    def commit_analysis_task_batch(
+        self,
+        *,
+        success_checkpoints: list[dict[str, object]] | None = None,
+        error_checkpoints: list[dict[str, object]] | None = None,
+        glossary_entries: list[dict[str, object]] | None = None,
+        progress_snapshot: dict[str, object] | None = None,
+    ) -> int:
+        if progress_snapshot is not None:
+            self.analysis_extras = self.normalize_analysis_progress_snapshot(
+                progress_snapshot
+            )
+
+        if glossary_entries is None:
+            glossary_entries = []
+        if success_checkpoints is None:
+            success_checkpoints = []
+        if error_checkpoints is None:
+            error_checkpoints = []
+
+        self.analysis_candidate_count += len(glossary_entries)
+        for checkpoint in success_checkpoints:
+            item_id = int(checkpoint.get("item_id", 0) or 0)
+            if item_id <= 0:
+                continue
+            self.analysis_item_checkpoints[item_id] = {
+                "status": Base.ProjectStatus.PROCESSED,
+                "error_count": 0,
+            }
+
+        for raw_checkpoint in error_checkpoints:
+            item_id = int(raw_checkpoint.get("item_id", 0) or 0)
+            if item_id <= 0:
+                continue
+            old_error_count = int(
+                self.analysis_item_checkpoints.get(item_id, {}).get("error_count", 0)
+                or 0
+            )
+            self.analysis_item_checkpoints[item_id] = {
+                "status": Base.ProjectStatus.ERROR,
+                "error_count": old_error_count + 1,
+            }
+
+        return len(glossary_entries)
+
     def update_analysis_task_error(
         self,
         checkpoints: list[dict[str, object]],
@@ -195,6 +253,9 @@ class FakeDataManager:
 
     def get_analysis_candidate_count(self) -> int:
         return self.analysis_candidate_count
+
+    def get_glossary(self) -> list[dict[str, object]]:
+        return [dict(entry) for entry in self.glossary_entries]
 
     def get_all_items(self):
         return list(self.items)

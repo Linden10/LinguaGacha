@@ -52,8 +52,8 @@ def create_translation_stub() -> Translation:
         mtool_optimizer_enable=False,
         output_folder_open_on_finish=False,
     )
-    translation.emit = recorder.emit  # type: ignore[method-assign]
-    translation.emitted_events = recorder.events  # type: ignore[attr-defined]
+    setattr(translation, "emit", recorder.emit)
+    setattr(translation, "emitted_events", recorder.events)
     return translation
 
 
@@ -200,6 +200,7 @@ def create_data_manager(*, loaded: bool, items: list[Item] | None = None) -> Any
         close_db=MagicMock(),
         get_project_status=MagicMock(return_value=Base.ProjectStatus.PROCESSING),
         get_translation_extras=MagicMock(return_value={"line": 9, "time": 3}),
+        get_analysis_extras=MagicMock(return_value={"line": 5, "time": 2}),
         get_analysis_progress_snapshot=MagicMock(return_value={"line": 5, "time": 2}),
         get_analysis_candidate_count=MagicMock(return_value=1),
         get_items_for_translation=MagicMock(return_value=item_list),
@@ -256,60 +257,6 @@ def test_get_concurrency_helpers_delegate_to_limiter() -> None:
 
     assert Translation.get_concurrency_in_use(translation) == 3
     assert Translation.get_concurrency_limit(translation) == 9
-
-
-def test_update_extras_snapshot_accumulates_runtime_data(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    translation = create_translation_stub()
-    translation.extras = {
-        "processed_line": 2,
-        "error_line": 1,
-        "total_tokens": 10,
-        "total_input_tokens": 6,
-        "total_output_tokens": 4,
-        "start_time": 100.0,
-    }
-    monkeypatch.setattr(translation_module.time, "time", lambda: 112.5)
-
-    snapshot = Translation.update_extras_snapshot(
-        translation,
-        processed_count=3,
-        error_count=2,
-        input_tokens=7,
-        output_tokens=11,
-    )
-
-    assert snapshot["processed_line"] == 5
-    assert snapshot["error_line"] == 3
-    assert snapshot["line"] == 8
-    assert snapshot["total_tokens"] == 28
-    assert snapshot["total_input_tokens"] == 13
-    assert snapshot["total_output_tokens"] == 15
-    assert snapshot["time"] == pytest.approx(12.5)
-
-
-def test_sync_extras_line_stats_uses_items_cache_as_source_of_truth(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    translation = create_translation_stub()
-    processed = Item(src="a")
-    processed.set_status(Base.ProjectStatus.PROCESSED)
-    failed = Item(src="b")
-    failed.set_status(Base.ProjectStatus.ERROR)
-    pending = Item(src="c")
-    pending.set_status(Base.ProjectStatus.NONE)
-    translation.items_cache = [processed, failed, pending]
-    translation.extras = {"start_time": 10.0}
-    monkeypatch.setattr(translation_module.time, "time", lambda: 16.0)
-
-    Translation.sync_extras_line_stats(translation)
-
-    assert translation.extras["processed_line"] == 1
-    assert translation.extras["error_line"] == 1
-    assert translation.extras["line"] == 2
-    assert translation.extras["total_line"] == 3
-    assert translation.extras["time"] == pytest.approx(6.0)
 
 
 def test_should_emit_export_result_toast_only_for_manual_source() -> None:
@@ -637,6 +584,8 @@ def test_project_check_run_emits_done_with_loaded_project(
             },
         )
     ]
+    dm.get_analysis_progress_snapshot.assert_not_called()
+    dm.get_analysis_extras.assert_called_once()
 
 
 def test_project_check_run_emits_none_payload_when_project_unloaded(
@@ -1047,7 +996,7 @@ def test_start_handles_no_active_model(
 ) -> None:
     translation = create_translation_stub()
     config = Config()
-    config.get_active_model = lambda: None  # type: ignore[method-assign]
+    setattr(config, "get_active_model", lambda: None)
     engine = create_engine()
     dm = create_data_manager(loaded=True, items=[Item(src="a")])
     logger = FakeLogManager()
@@ -1077,13 +1026,17 @@ def test_start_emits_warning_when_items_are_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     translation = create_translation_stub()
-    translation.finalize_translation_run = MagicMock()  # type: ignore[method-assign]
-    translation.cleanup_translation_run = MagicMock()  # type: ignore[method-assign]
+    setattr(translation, "finalize_translation_run", MagicMock())
+    setattr(translation, "cleanup_translation_run", MagicMock())
     config = Config()
-    config.get_active_model = lambda: {  # type: ignore[method-assign]
-        "api_format": Base.APIFormat.OPENAI,
-        "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
-    }
+    setattr(
+        config,
+        "get_active_model",
+        lambda: {
+            "api_format": Base.APIFormat.OPENAI,
+            "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
+        },
+    )
     dm = create_data_manager(loaded=True, items=[])
     engine = create_engine()
     logger = FakeLogManager()
@@ -1135,13 +1088,17 @@ def test_start_success_flow_triggers_auto_export(
         staticmethod(lambda: object()),
     )
     config = Config()
-    config.get_active_model = lambda: {
-        "api_format": Base.APIFormat.OPENAI,
-        "name": "model",
-        "api_url": "url",
-        "model_id": "id",
-        "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
-    }  # type: ignore[method-assign]
+    setattr(
+        config,
+        "get_active_model",
+        lambda: {
+            "api_format": Base.APIFormat.OPENAI,
+            "name": "model",
+            "api_url": "url",
+            "model_id": "id",
+            "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
+        },
+    )
 
     def fake_pipeline(**kwargs: Any) -> None:
         del kwargs
@@ -1194,13 +1151,17 @@ def test_start_continue_mode_handles_stop_and_failed_states(
         staticmethod(lambda: object()),
     )
     config = Config()
-    config.get_active_model = lambda: {
-        "api_format": Base.APIFormat.SAKURALLM,
-        "name": "model",
-        "api_url": "url",
-        "model_id": "id",
-        "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
-    }  # type: ignore[method-assign]
+    setattr(
+        config,
+        "get_active_model",
+        lambda: {
+            "api_format": Base.APIFormat.SAKURALLM,
+            "name": "model",
+            "api_url": "url",
+            "model_id": "id",
+            "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
+        },
+    )
     translation.start_translation_pipeline = lambda **kwargs: None
     translation.run_translation_export = MagicMock()
 
@@ -1221,9 +1182,13 @@ def test_start_emits_error_toast_when_exception_occurs(
 ) -> None:
     translation = create_translation_stub()
     config = Config()
-    config.get_active_model = lambda: {
-        "threshold": {"concurrency_limit": 1, "rpm_limit": 0}
-    }  # type: ignore[method-assign]
+    setattr(
+        config,
+        "get_active_model",
+        lambda: {
+            "threshold": {"concurrency_limit": 1, "rpm_limit": 0},
+        },
+    )
     dm = create_data_manager(loaded=True, items=[Item(src="line")])
     dm.open_db = MagicMock(side_effect=RuntimeError("open failed"))
     engine = create_engine()
@@ -1258,33 +1223,6 @@ def test_get_item_count_copy_and_close_db_helpers(
     dm.close_db.assert_called_once()
 
 
-def test_sync_extras_line_stats_returns_when_items_cache_is_none() -> None:
-    translation = create_translation_stub()
-    translation.items_cache = None
-    translation.extras = {"start_time": 10.0}
-
-    Translation.sync_extras_line_stats(translation)
-
-    assert translation.extras == {"start_time": 10.0}
-
-
-def test_sync_extras_line_stats_ignores_untracked_item_status(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    translation = create_translation_stub()
-    item = Item(src="x")
-    item.set_status(Base.ProjectStatus.EXCLUDED)
-    translation.items_cache = [item]
-    translation.extras = {"start_time": 0.0}
-    monkeypatch.setattr(translation_module.time, "time", lambda: 1.0)
-
-    Translation.sync_extras_line_stats(translation)
-
-    assert translation.extras["processed_line"] == 0
-    assert translation.extras["error_line"] == 0
-    assert translation.extras["total_line"] == 0
-
-
 def test_save_translation_state_without_extras_still_sets_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1313,6 +1251,13 @@ def test_start_translation_pipeline_builds_pipeline_and_runs(
     translation = create_translation_stub()
     called: dict[str, Any] = {}
 
+    class FakeHooks:
+        def __init__(self, **kwargs: Any) -> None:
+            called.update(kwargs)
+
+        def build_pipeline_sizes(self) -> tuple[int, int, int]:
+            return 4, 8, 4
+
     class FakePipeline:
         def __init__(self, **kwargs: Any) -> None:
             called.update(kwargs)
@@ -1320,7 +1265,8 @@ def test_start_translation_pipeline_builds_pipeline_and_runs(
         def run(self) -> None:
             called["ran"] = True
 
-    monkeypatch.setattr(translation_module, "TranslationTaskPipeline", FakePipeline)
+    monkeypatch.setattr(translation_module, "TranslationTaskHooks", FakeHooks)
+    monkeypatch.setattr(translation_module, "TaskPipeline", FakePipeline)
 
     Translation.start_translation_pipeline(
         translation,
@@ -1332,6 +1278,8 @@ def test_start_translation_pipeline_builds_pipeline_and_runs(
 
     assert called["translation"] is translation
     assert called["max_workers"] == 2
+    assert isinstance(called["hooks"], FakeHooks)
+    assert translation.task_hooks is None
     assert called["ran"] is True
 
 

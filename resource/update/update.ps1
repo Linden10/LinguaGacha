@@ -3,6 +3,7 @@ param (
     [int]$AppPid,
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
+    [string]$UpdateDir,
     [Parameter(Mandatory = $true)]
     [string]$ZipPath,
     [Parameter(Mandatory = $true)]
@@ -11,7 +12,10 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-$UpdateDir = Join-Path $InstallDir "resource\update"
+if ([string]::IsNullOrWhiteSpace($UpdateDir)) {
+    $UpdateDir = Join-Path $InstallDir "resource\update"
+}
+
 $StageDir = Join-Path $UpdateDir "stage"
 $BackupDir = Join-Path $UpdateDir "backup"
 $LockPath = Join-Path $UpdateDir ".lock"
@@ -115,54 +119,36 @@ function Write-Summary {
     param (
         [int]$Code,
         [string]$Status,
-        [string]$MessageZh,
-        [string]$MessageEn
+        [string]$Message
     )
 
     $isSuccess = $Status -eq "success"
-    $statusZh = if ($isSuccess) { "成功" } else { "失败" }
-    $statusEn = if ($isSuccess) { "SUCCESS" } else { "FAILED" }
-    $nextStepZh = if ($isSuccess) {
-        "请手动启动 app.exe，并确认更新后的功能正常。"
-    } else {
-        "请先查看日志定位问题，修复后手动启动 app.exe。"
-    }
-    $nextStepEn = if ($isSuccess) {
+    $statusText = if ($isSuccess) { "SUCCESS" } else { "FAILED" }
+    $nextStep = if ($isSuccess) {
         "Launch app.exe manually and verify the updated app works as expected."
     } else {
         "Check the log first, fix the issue, then launch app.exe manually."
     }
 
     Write-Host ""
-    Write-Host "========== 更新简报 =========="
-    Write-Host "状态: $statusZh"
-    Write-Host "退出码: $Code"
-    Write-Host "信息: $MessageZh"
-    Write-Host "日志: $LogPath"
-    Write-Host "=============================="
-
-    Write-Host ""
     Write-Host "========== Update Summary =========="
-    Write-Host "Status: $statusEn"
+    Write-Host "Status: $statusText"
     Write-Host "Exit Code: $Code"
-    Write-Host "Message: $MessageEn"
+    Write-Host "Message: $Message"
     Write-Host "Log: $LogPath"
     Write-Host "===================================="
 
     Write-Host ""
-    Write-Host "下一步：$nextStepZh"
-    Write-Host "Next Step: $nextStepEn"
+    Write-Host "Next Step: $nextStep"
 }
 
 function Wait-ForUserConfirm {
     try {
         Write-Host ""
-        Write-Host "按任意键关闭窗口。"
         Write-Host "Press any key to close."
         [void]$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     } catch {
-        Write-Host "无法等待按键输入，脚本结束。"
-        Write-Host "Unable to wait for key input, script finished."
+        Write-Host "Unable to wait for key input. Script finished."
     }
 }
 
@@ -208,9 +194,44 @@ function Expand-PackageToStage {
         throw "Update package not found: $PackagePath"
     }
 
-    # 使用 ZipFile 直接按内容解压，避免 Expand-Archive 只接受 .zip 扩展名导致 .temp 失败。
+    # Extract the archive by content so .temp packages still work without a .zip suffix.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($PackagePath, $DestinationPath)
+}
+
+function Get-UpdateBackupExcludedNames {
+    return @(
+        "app.zip.temp",
+        "update.log",
+        ".lock",
+        "result.json",
+        "update.runtime.ps1",
+        "stage",
+        "backup"
+    )
+}
+
+function Copy-DirectoryItems {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDir,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationDir,
+        [string[]]$ExcludedNames = @()
+    )
+
+    New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
+    if (!(Test-Path $SourceDir)) {
+        return
+    }
+
+    $sourceItems = Get-ChildItem -Path $SourceDir -Force
+    foreach ($sourceItem in $sourceItems) {
+        if ($ExcludedNames -contains $sourceItem.Name) {
+            continue
+        }
+        Copy-Item -Path $sourceItem.FullName -Destination $DestinationDir -Recurse -Force
+    }
 }
 
 function Backup-Targets {
@@ -232,7 +253,8 @@ function Backup-Targets {
     if (Test-Path $ResourcePath) {
         $resourceItems = Get-ChildItem -Path $ResourcePath -Force
         foreach ($item in $resourceItems) {
-            if ($item.Name -eq "update") {
+            if ($item.PSIsContainer -and $item.FullName -eq $UpdateDir) {
+                Copy-DirectoryItems -SourceDir $item.FullName -DestinationDir (Join-Path $backupResourcePath $item.Name) -ExcludedNames (Get-UpdateBackupExcludedNames)
                 continue
             }
             Copy-Item -Path $item.FullName -Destination $backupResourcePath -Recurse -Force
@@ -258,9 +280,6 @@ function Restore-Targets {
 
     $resourceItems = Get-ChildItem -Path $ResourcePath -Force
     foreach ($item in $resourceItems) {
-        if ($item.Name -eq "update") {
-            continue
-        }
         Remove-IfExists $item.FullName
     }
 
@@ -275,8 +294,7 @@ function Restore-Targets {
 $exitCode = 0
 $needRollback = $false
 $summaryStatus = "success"
-$summaryMessageZh = "更新已完成。"
-$summaryMessageEn = "Update applied."
+$summaryMessage = "Update applied."
 
 try {
     Remove-IfExists $LogPath
@@ -299,8 +317,10 @@ try {
     Expand-PackageToStage -PackagePath $ZipPath -DestinationPath $StageDir
     Write-Log "Archive extracted to stage."
 
-    $sourceRoot = Join-Path $StageDir "LinguaGacha"
-    if (!(Test-Path $sourceRoot)) {
+    $topLevelItems = @(Get-ChildItem -Path $StageDir -Force)
+    if ($topLevelItems.Count -eq 1 -and $topLevelItems[0].PSIsContainer) {
+        $sourceRoot = $topLevelItems[0].FullName
+    } else {
         $sourceRoot = $StageDir
     }
 
@@ -311,6 +331,10 @@ try {
     Write-Log "Apply staged files to install directory."
     Copy-Item -Path (Join-Path $sourceRoot "*") -Destination $InstallDir -Recurse -Force
 
+    if ($env:LINGUAGACHA_UPDATER_TEST_FAIL_AFTER_COPY -eq "1") {
+        throw "Test requested failure after copy."
+    }
+
     Write-Log "Update applied successfully."
     Write-Result -Status "success" -Message "Update applied."
 }
@@ -318,8 +342,7 @@ catch {
     $exitCode = 30
     $errorMessage = $_.Exception.Message
     $summaryStatus = "failed"
-    $summaryMessageZh = "更新失败：$errorMessage"
-    $summaryMessageEn = "Update failed: $errorMessage"
+    $summaryMessage = "Update failed: $errorMessage"
     Write-Log "ERROR: $errorMessage"
 
     if ($errorMessage -like "*SHA-256 mismatch*") {
@@ -354,6 +377,6 @@ finally {
     }
 
     Write-Log "Updater exit code: $exitCode"
-    Write-Summary -Code $exitCode -Status $summaryStatus -MessageZh $summaryMessageZh -MessageEn $summaryMessageEn
+    Write-Summary -Code $exitCode -Status $summaryStatus -Message $summaryMessage
     Wait-ForUserConfirm
 }

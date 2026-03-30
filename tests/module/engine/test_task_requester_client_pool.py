@@ -128,7 +128,7 @@ def test_parse_google_api_url_variants() -> None:
     )
 
 
-def test_get_default_headers_includes_version() -> None:
+def test_get_default_headers_includes_app_name() -> None:
     with patch(
         "module.Engine.TaskRequesterClientPool.VersionManager.get",
         return_value=FakeVersionManager("9.9.9"),

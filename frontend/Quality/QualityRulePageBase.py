@@ -9,10 +9,10 @@ from typing import cast
 from PySide6.QtCore import QPoint
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
-from PySide6.QtCore import QUrl
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QShortcut
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QAbstractItemView
 from PySide6.QtWidgets import QApplication
@@ -27,7 +27,8 @@ from qfluentwidgets import FluentWindow
 from qfluentwidgets import MenuAnimationType
 from qfluentwidgets import MessageBox
 from qfluentwidgets import RoundMenu
-from qfluentwidgets import TransparentPushButton
+from qfluentwidgets import ToolTipFilter
+from qfluentwidgets import ToolTipPosition
 from qfluentwidgets import setCustomStyleSheet
 from qfluentwidgets import qconfig
 from qfluentwidgets.components.widgets.command_bar import CommandButton
@@ -57,7 +58,6 @@ ICON_ACTION_IMPORT: BaseIcon = BaseIcon.FILE_DOWN  # 命令栏：导入规则
 ICON_ACTION_EXPORT: BaseIcon = BaseIcon.FILE_UP  # 命令栏：导出规则
 ICON_ACTION_SEARCH: BaseIcon = BaseIcon.SEARCH  # 命令栏：搜索
 ICON_ACTION_PRESET: BaseIcon = BaseIcon.FOLDER_OPEN  # 命令栏：预设菜单
-ICON_ACTION_WIKI: BaseIcon = BaseIcon.CIRCLE_QUESTION_MARK  # 命令栏：打开 Wiki
 ICON_ACTION_STATISTICS: BaseIcon = BaseIcon.CHART_BAR  # 命令栏：规则统计
 ICON_ACTION_REORDER: BaseIcon = BaseIcon.ARROW_DOWN_UP  # 右键菜单：排序
 ICON_ACTION_MOVE_UP: BaseIcon = BaseIcon.CHEVRON_UP  # 右键菜单：上移
@@ -143,6 +143,7 @@ class QualityRulePageBase(Base, QWidget):
         self.statistics_subset_parents: dict[str, tuple[str, ...]] = {}
         self.statistics_icon_cache: StatusColumnIconStrip.IconStripPixmapCache = {}
         self.statistics_button: CommandButton | None = None
+        self.search_button: CommandButton | None = None
         self.statistics_done.connect(self.on_statistics_done)
 
         # 主容器
@@ -1713,6 +1714,20 @@ class QualityRulePageBase(Base, QWidget):
         self.command_bar_card.setVisible(False)
         self.search_card.get_line_edit().setFocus()
 
+    def install_shortcut_tooltip(self, widget: QWidget, shortcut: str) -> None:
+        """统一给命令栏按钮安装仅显示快捷键的 qfluent 提示。"""
+        widget.setToolTip(shortcut)
+        widget.installEventFilter(ToolTipFilter(widget, 300, ToolTipPosition.TOP))
+
+    def on_search_shortcut(self) -> None:
+        """Ctrl+F：打开质量规则搜索栏，或在已展开时聚焦输入框。"""
+        if self.search_button is None:
+            return
+        if not self.search_card.isVisible():
+            self.show_search_bar()
+            return
+        self.search_card.get_line_edit().setFocus()
+
     def on_search_back_clicked(self) -> None:
         def action() -> None:
             self.search_card.reset_state()
@@ -1807,13 +1822,23 @@ class QualityRulePageBase(Base, QWidget):
         )
 
     def add_command_bar_action_search(self) -> CommandButton:
-        return self.command_bar_card.add_action(
+        self.search_button = self.command_bar_card.add_action(
             Action(
                 ICON_ACTION_SEARCH,
                 Localizer.get().search,
                 triggered=self.show_search_bar,
             )
         )
+        self.install_shortcut_tooltip(
+            self.search_button,
+            Localizer.get().shortcut_ctrl_f,
+        )
+        self.search_shortcut = QShortcut(
+            QKeySequence(Localizer.get().shortcut_ctrl_f),
+            self,
+        )
+        self.search_shortcut.activated.connect(self.on_search_shortcut)
+        return self.search_button
 
     def add_command_bar_action_statistics(self) -> CommandButton:
         self.statistics_button = self.command_bar_card.add_action(
@@ -1852,17 +1877,6 @@ class QualityRulePageBase(Base, QWidget):
         )
         return widget
 
-    def add_command_bar_action_wiki(self) -> None:
-        def connect() -> None:
-            QDesktopServices.openUrl(QUrl("https://github.com/neavo/LinguaGacha/wiki"))
-
-        push_button = TransparentPushButton(
-            ICON_ACTION_WIKI,
-            Localizer.get().wiki,
-        )
-        push_button.clicked.connect(connect)
-        self.command_bar_card.add_widget(push_button)
-
     def add_standard_command_bar_actions(
         self,
         config: Config,
@@ -1885,5 +1899,3 @@ class QualityRulePageBase(Base, QWidget):
 
         for action in extra_right_actions:
             action()
-
-        self.add_command_bar_action_wiki()
