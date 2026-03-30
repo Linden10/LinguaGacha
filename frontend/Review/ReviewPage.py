@@ -1,4 +1,3 @@
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QVBoxLayout
@@ -70,7 +69,7 @@ class ReviewPage(Base, QWidget):
 
     def add_widget_head(self, parent: QVBoxLayout, config: Config) -> None:
         """添加顶部工具栏（开始/停止审校按钮）。"""
-        self.head_command_bar = CommandBarCard(parent=self)
+        self.head_command_bar = CommandBarCard()
 
         # 开始审校按钮（带下拉菜单选择审校范围）
         self.start_action = self.head_command_bar.add_action(
