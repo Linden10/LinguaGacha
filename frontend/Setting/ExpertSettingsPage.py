@@ -1,5 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QHBoxLayout
 from PySide6.QtWidgets import QLayout
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
@@ -16,6 +18,7 @@ from base.Base import Base
 from base.BaseIcon import BaseIcon
 from module.Config import Config
 from module.Localizer.Localizer import Localizer
+from widget.CustomLineEdit import CustomLineEdit
 from widget.SettingCard import SettingCard
 
 
@@ -59,6 +62,7 @@ class ExpertSettingsPage(Base, QWidget):
         self.add_widget_auto_process_prefix_suffix_preserved_text(
             scroll_area_vbox, config, window
         )
+        self.add_widget_ffmpeg_path(scroll_area_vbox, config, window)
 
         # 填充
         scroll_area_vbox.addStretch(1)
@@ -386,3 +390,57 @@ class ExpertSettingsPage(Base, QWidget):
         before_show()
         global_pos = button.mapToGlobal(QPoint(0, button.height()))
         menu.exec(global_pos)
+
+    # FFmpeg 路径设置
+    def add_widget_ffmpeg_path(
+        self, parent: QLayout, config: Config, window: FluentWindow
+    ) -> None:
+        del window
+
+        card = SettingCard(
+            title=Localizer.get().expert_settings_page_ffmpeg_path,
+            description=Localizer.get().expert_settings_page_ffmpeg_path_desc,
+            parent=self,
+        )
+
+        # 输入框 + 浏览按钮组合
+        container = QWidget(card)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        ffmpeg_edit = CustomLineEdit(container)
+        ffmpeg_edit.setMinimumWidth(200)
+        ffmpeg_edit.setText(config.ffmpeg_path)
+        ffmpeg_edit.setPlaceholderText(
+            Localizer.get().expert_settings_page_ffmpeg_path_placeholder
+        )
+
+        def on_editing_finished() -> None:
+            current_config = Config().load()
+            current_config.ffmpeg_path = ffmpeg_edit.text().strip()
+            current_config.save()
+
+        ffmpeg_edit.editingFinished.connect(on_editing_finished)
+
+        browse_button = PushButton(Localizer.get().select_file, container)
+
+        def on_browse() -> None:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                Localizer.get().select_file,
+                "",
+                "ffmpeg (*)",
+            )
+            if isinstance(path, str) and path:
+                ffmpeg_edit.setText(path)
+                current_config = Config().load()
+                current_config.ffmpeg_path = path
+                current_config.save()
+
+        browse_button.clicked.connect(on_browse)
+
+        layout.addWidget(ffmpeg_edit)
+        layout.addWidget(browse_button)
+        card.add_right_widget(container)
+        parent.addWidget(card)

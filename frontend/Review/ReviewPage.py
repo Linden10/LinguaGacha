@@ -1,11 +1,15 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QListWidgetItem
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import Action
 from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
+from qfluentwidgets import ListWidget
 from qfluentwidgets import MessageBox
+from qfluentwidgets import PushButton
+from qfluentwidgets import SingleDirectionScrollArea
 from qfluentwidgets import SpinBox
 from qfluentwidgets import SwitchButton
 
@@ -19,6 +23,7 @@ from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
 from widget.CustomLineEdit import CustomLineEdit
+from widget.HotkeyLineEdit import HotkeyLineEdit
 from widget.SettingCard import SettingCard
 
 # ==================== 图标常量 ====================
@@ -52,17 +57,31 @@ class ReviewPage(Base, QWidget):
         # 主容器
         self.root = QVBoxLayout(self)
         self.root.setSpacing(8)
-        self.root.setContentsMargins(24, 24, 24, 24)
+        self.root.setContentsMargins(6, 24, 6, 24)
+
+        # 创建滚动区域的内容容器
+        scroll_area_vbox_widget = QWidget()
+        scroll_area_vbox = QVBoxLayout(scroll_area_vbox_widget)
+        scroll_area_vbox.setContentsMargins(18, 0, 18, 0)
+
+        # 创建滚动区域
+        scroll_area = SingleDirectionScrollArea(orient=Qt.Orientation.Vertical)
+        scroll_area.setWidget(scroll_area_vbox_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.enableTransparentBackground()
+
+        # 将滚动区域添加到父布局
+        self.root.addWidget(scroll_area)
 
         # 添加控件
-        self.add_widget_head(self.root, config)
-        self.add_widget_scope(self.root)
-        self.add_widget_settings(self.root, config)
-        self.add_widget_capture(self.root, config)
-        self.add_widget_progress(self.root)
+        self.add_widget_head(scroll_area_vbox, config)
+        self.add_widget_scope(scroll_area_vbox)
+        self.add_widget_settings(scroll_area_vbox, config)
+        self.add_widget_capture(scroll_area_vbox, config)
+        self.add_widget_progress(scroll_area_vbox)
 
         # 填充
-        self.root.addStretch(1)
+        scroll_area_vbox.addStretch(1)
 
         # 订阅事件
         self.subscribe(Base.Event.REVIEW_TASK, self.on_review_task_event)
@@ -130,28 +149,37 @@ class ReviewPage(Base, QWidget):
         scope_card.add_right_widget(self.scope_combo)
         parent.addWidget(scope_card)
 
-        # 文件选择（仅"选定文件"范围下可见）
+        # 文件选择（仅"选定文件"范围下可见）— 支持多选
         file_card = SettingCard(
             title=Localizer.get().review_page_scope_file,
             description=Localizer.get().review_page_scope_file_desc,
             parent=self,
         )
-        self.file_combo = ComboBox(file_card)
-        self.file_combo.setMinimumWidth(260)
-        file_card.add_right_widget(self.file_combo)
+        self.file_select_button = PushButton(
+            Localizer.get().review_page_select_files, file_card
+        )
+        self.file_select_button.setMinimumWidth(200)
+        self.file_select_button.clicked.connect(self.on_select_files_clicked)
+        file_card.add_right_widget(self.file_select_button)
         parent.addWidget(file_card)
 
         self.file_card = file_card
         self.file_card.setVisible(False)
 
-        # 尝试填充文件列表
-        self.populate_file_combo()
+        # 已选文件列表（内部状态）
+        self.selected_files: list[str] = []
+        self.all_file_paths: list[str] = []
 
-    def populate_file_combo(self) -> None:
-        """从当前工程填充文件下拉框。"""
-        self.file_combo.clear()
+        # 尝试填充文件列表
+        self.populate_file_list()
+
+    def populate_file_list(self) -> None:
+        """从当前工程获取可用文件列表。"""
+        self.all_file_paths = []
+        self.selected_files = []
         dm = DataManager.get()
         if not dm.is_loaded():
+            self.update_file_button_text()
             return
 
         items = dm.get_all_items()
@@ -161,8 +189,66 @@ class ReviewPage(Base, QWidget):
             if fp:
                 file_paths.add(fp)
 
-        for path in sorted(file_paths):
-            self.file_combo.addItem(path, userData=path)
+        self.all_file_paths = sorted(file_paths)
+        self.update_file_button_text()
+
+    def on_select_files_clicked(self) -> None:
+        """打开文件多选对话框。"""
+        if not self.all_file_paths:
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().review_page_no_file_selected,
+                },
+            )
+            return
+
+        dialog = MessageBox(
+            Localizer.get().review_page_scope_file,
+            "",
+            self.window_ref,
+        )
+        dialog.yesButton.setText(Localizer.get().confirm)
+        dialog.cancelButton.setText(Localizer.get().cancel)
+
+        # 添加可勾选的文件列表
+        file_list = ListWidget(dialog)
+        file_list.setMinimumHeight(300)
+        for fp in self.all_file_paths:
+            list_item = QListWidgetItem(fp)
+            list_item.setFlags(list_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            if fp in self.selected_files:
+                list_item.setCheckState(Qt.CheckState.Checked)
+            else:
+                list_item.setCheckState(Qt.CheckState.Unchecked)
+            file_list.addItem(list_item)
+
+        dialog.textLayout.addWidget(file_list)
+
+        if not dialog.exec():
+            return
+
+        # 收集选中的文件
+        self.selected_files = []
+        for i in range(file_list.count()):
+            list_item = file_list.item(i)
+            if list_item and list_item.checkState() == Qt.CheckState.Checked:
+                self.selected_files.append(self.all_file_paths[i])
+
+        self.update_file_button_text()
+
+    def update_file_button_text(self) -> None:
+        """更新文件选择按钮上的文案。"""
+        count = len(self.selected_files)
+        if count == 0:
+            self.file_select_button.setText(Localizer.get().review_page_select_files)
+        else:
+            self.file_select_button.setText(
+                Localizer.get().review_page_files_selected.replace(
+                    "{COUNT}", str(count)
+                )
+            )
 
     def on_scope_changed(self, index: int) -> None:
         """审校范围变更：控制文件下拉框可见性。"""
@@ -264,13 +350,15 @@ class ReviewPage(Base, QWidget):
             [
                 Localizer.get().review_page_capture_image,
                 Localizer.get().review_page_capture_video,
+                Localizer.get().review_page_capture_video_audio,
                 Localizer.get().review_page_capture_audio,
             ]
         )
         capture_mode_map = {
             Config.CaptureMode.IMAGE: 0,
             Config.CaptureMode.VIDEO: 1,
-            Config.CaptureMode.AUDIO: 2,
+            Config.CaptureMode.VIDEO_AUDIO: 2,
+            Config.CaptureMode.AUDIO: 3,
         }
         self.capture_mode_combo.setCurrentIndex(
             capture_mode_map.get(config.review_capture_mode, 0)
@@ -296,16 +384,20 @@ class ReviewPage(Base, QWidget):
         parent.addWidget(window_card)
         self.capture_window_card = window_card
 
-        # 热键
+        # 热键（按键捕获）
         hotkey_card = SettingCard(
             title=Localizer.get().review_page_capture_hotkey,
             description=Localizer.get().review_page_capture_hotkey_desc,
             parent=self,
         )
-        self.capture_hotkey_edit = CustomLineEdit(hotkey_card)
-        self.capture_hotkey_edit.setMinimumWidth(120)
+        self.capture_hotkey_edit = HotkeyLineEdit(hotkey_card)
+        self.capture_hotkey_edit.setMinimumWidth(160)
+        self.capture_hotkey_edit.setReadOnly(False)
         self.capture_hotkey_edit.setText(config.review_capture_hotkey)
-        self.capture_hotkey_edit.editingFinished.connect(self.on_capture_hotkey_changed)
+        self.capture_hotkey_edit.setPlaceholderText(
+            Localizer.get().review_page_capture_hotkey_placeholder
+        )
+        self.capture_hotkey_edit.hotkey_changed.connect(self.on_capture_hotkey_captured)
         hotkey_card.add_right_widget(self.capture_hotkey_edit)
         parent.addWidget(hotkey_card)
         self.capture_hotkey_card = hotkey_card
@@ -398,9 +490,8 @@ class ReviewPage(Base, QWidget):
             scope_desc = Localizer.get().review_page_scope_all
 
         elif scope_index == SCOPE_FILE:
-            # 审校选定文件的已翻译条目
-            selected_file = self.file_combo.currentData()
-            if not selected_file:
+            # 审校选定文件的已翻译条目（支持多选）
+            if not self.selected_files:
                 self.emit(
                     Base.Event.TOAST,
                     {
@@ -409,8 +500,9 @@ class ReviewPage(Base, QWidget):
                     },
                 )
                 return
+            selected_set = set(self.selected_files)
             file_items = [
-                item for item in items if item.get_file_path() == selected_file
+                item for item in items if item.get_file_path() in selected_set
             ]
             review_items = self.filter_translated_items(file_items)
             scope_desc = Localizer.get().review_page_scope_file
@@ -544,11 +636,13 @@ class ReviewPage(Base, QWidget):
 
     def on_project_loaded(self, event: Base.Event, data: dict) -> None:
         """工程加载后刷新文件列表。"""
-        self.populate_file_combo()
+        self.populate_file_list()
 
     def on_project_unloaded(self, event: Base.Event, data: dict) -> None:
         """工程卸载后清空文件列表。"""
-        self.file_combo.clear()
+        self.all_file_paths = []
+        self.selected_files = []
+        self.update_file_button_text()
 
     def update_buttons(self) -> None:
         """根据引擎状态更新按钮可用性。"""
@@ -562,7 +656,7 @@ class ReviewPage(Base, QWidget):
 
         # 审校过程中禁用设置
         self.scope_combo.setEnabled(not is_busy)
-        self.file_combo.setEnabled(not is_busy)
+        self.file_select_button.setEnabled(not is_busy)
         self.model_combo.setEnabled(not is_busy)
         self.approval_combo.setEnabled(not is_busy)
         self.preceding_spin.setEnabled(not is_busy)
@@ -619,7 +713,8 @@ class ReviewPage(Base, QWidget):
         mode_map = {
             0: Config.CaptureMode.IMAGE,
             1: Config.CaptureMode.VIDEO,
-            2: Config.CaptureMode.AUDIO,
+            2: Config.CaptureMode.VIDEO_AUDIO,
+            3: Config.CaptureMode.AUDIO,
         }
         config = Config().load()
         config.review_capture_mode = mode_map.get(index, Config.CaptureMode.IMAGE)
@@ -632,9 +727,15 @@ class ReviewPage(Base, QWidget):
         config.save()
 
     def on_capture_hotkey_changed(self) -> None:
-        """热键变更。"""
+        """热键变更（文本编辑完成时触发）。"""
         config = Config().load()
         config.review_capture_hotkey = self.capture_hotkey_edit.text().strip()
+        config.save()
+
+    def on_capture_hotkey_captured(self, hotkey: str) -> None:
+        """热键通过键盘捕获变更。"""
+        config = Config().load()
+        config.review_capture_hotkey = hotkey
         config.save()
 
     def on_capture_auto_advance_changed(self, checked: bool) -> None:

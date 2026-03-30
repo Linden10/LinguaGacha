@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import shutil
 import subprocess
 import sys
@@ -31,8 +32,25 @@ class GameCapture:
     # ==================== 公共接口 ====================
 
     @staticmethod
+    def resolve_ffmpeg_path() -> str:
+        """解析 ffmpeg 可执行文件路径：优先使用配置中的自定义路径，否则查找系统 PATH。"""
+        from module.Config import Config
+
+        config = Config().load()
+        custom_path = config.ffmpeg_path.strip()
+        if custom_path:
+            return custom_path
+        return shutil.which("ffmpeg") or "ffmpeg"
+
+    @staticmethod
     def is_available() -> bool:
         """检查 ffmpeg 是否可用。"""
+        from module.Config import Config
+
+        config = Config().load()
+        custom_path = config.ffmpeg_path.strip()
+        if custom_path:
+            return os.path.isfile(custom_path)
         return shutil.which("ffmpeg") is not None
 
     def capture_screenshot(self, window_title: str) -> str:
@@ -102,7 +120,7 @@ class GameCapture:
         try:
             from module.Config import Config
 
-            suffix = ".mp4" if mode == Config.CaptureMode.VIDEO else ".wav"
+            suffix = ".wav" if mode == Config.CaptureMode.AUDIO else ".mp4"
             tmp_file = tempfile.NamedTemporaryFile(
                 suffix=suffix, prefix="lgc_capture_", delete=False
             )
@@ -175,18 +193,19 @@ class GameCapture:
 
     # ==================== 平台相关实现 ====================
 
-    @staticmethod
-    def build_screenshot_cmd(window_title: str) -> list[str]:
+    @classmethod
+    def build_screenshot_cmd(cls, window_title: str) -> list[str]:
         """构建截图命令（跨平台）。
 
         Windows: 通过 gdigrab 按窗口标题捕获。
         macOS:   avfoundation 仅支持按屏幕设备索引捕获整个屏幕。
         Linux:   x11grab 捕获整个屏幕（:0.0），暂不支持按窗口标题裁剪。
         """
+        ffmpeg = cls.resolve_ffmpeg_path()
         max_w = str(GameCapture.MAX_IMAGE_WIDTH)
         if sys.platform == "win32":
             return [
-                "ffmpeg",
+                ffmpeg,
                 "-f",
                 "gdigrab",
                 "-framerate",
@@ -206,7 +225,7 @@ class GameCapture:
         elif sys.platform == "darwin":
             # macOS 使用 avfoundation；窗口捕获需要 screen device index
             return [
-                "ffmpeg",
+                ffmpeg,
                 "-f",
                 "avfoundation",
                 "-framerate",
@@ -226,7 +245,7 @@ class GameCapture:
         else:
             # Linux 使用 x11grab
             return [
-                "ffmpeg",
+                ffmpeg,
                 "-f",
                 "x11grab",
                 "-framerate",
@@ -244,18 +263,20 @@ class GameCapture:
                 "pipe:1",
             ]
 
-    @staticmethod
+    @classmethod
     def build_recording_cmd(
-        window_title: str, mode: str, output_path: str
+        cls, window_title: str, mode: str, output_path: str
     ) -> list[str]:
         """构建录制命令（跨平台）。"""
         from module.Config import Config
+
+        ffmpeg = cls.resolve_ffmpeg_path()
 
         if mode == Config.CaptureMode.AUDIO:
             # 仅录制音频
             if sys.platform == "win32":
                 return [
-                    "ffmpeg",
+                    ffmpeg,
                     "-f",
                     "dshow",
                     "-i",
@@ -265,7 +286,7 @@ class GameCapture:
                 ]
             elif sys.platform == "darwin":
                 return [
-                    "ffmpeg",
+                    ffmpeg,
                     "-f",
                     "avfoundation",
                     "-i",
@@ -275,7 +296,7 @@ class GameCapture:
                 ]
             else:
                 return [
-                    "ffmpeg",
+                    ffmpeg,
                     "-f",
                     "pulse",
                     "-i",
@@ -284,16 +305,21 @@ class GameCapture:
                     output_path,
                 ]
         else:
-            # 录制视频（可含音频）
+            # 录制视频
+            include_audio = mode == Config.CaptureMode.VIDEO_AUDIO
             if sys.platform == "win32":
-                return [
-                    "ffmpeg",
+                cmd = [
+                    ffmpeg,
                     "-f",
                     "gdigrab",
                     "-framerate",
                     "15",
                     "-i",
                     f"title={window_title}",
+                ]
+                if include_audio:
+                    cmd += ["-f", "dshow", "-i", "audio=virtual-audio-capturer"]
+                cmd += [
                     "-c:v",
                     "libx264",
                     "-preset",
@@ -303,15 +329,18 @@ class GameCapture:
                     "-y",
                     output_path,
                 ]
+                return cmd
             elif sys.platform == "darwin":
-                return [
-                    "ffmpeg",
+                # avfoundation "1:0" = screen device 1 + audio device 0
+                av_input = "1:0" if include_audio else "1:none"
+                cmd = [
+                    ffmpeg,
                     "-f",
                     "avfoundation",
                     "-framerate",
                     "15",
                     "-i",
-                    "1:none",
+                    av_input,
                     "-c:v",
                     "libx264",
                     "-preset",
@@ -321,15 +350,20 @@ class GameCapture:
                     "-y",
                     output_path,
                 ]
+                return cmd
             else:
-                return [
-                    "ffmpeg",
+                cmd = [
+                    ffmpeg,
                     "-f",
                     "x11grab",
                     "-framerate",
                     "15",
                     "-i",
                     ":0.0",
+                ]
+                if include_audio:
+                    cmd += ["-f", "pulse", "-i", "default"]
+                cmd += [
                     "-c:v",
                     "libx264",
                     "-preset",
@@ -339,6 +373,7 @@ class GameCapture:
                     "-y",
                     output_path,
                 ]
+                return cmd
 
     @staticmethod
     def send_hotkey_windows(window_title: str, key: str) -> bool:

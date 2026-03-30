@@ -46,7 +46,8 @@ class Config:
 
     class CaptureMode(StrEnum):
         IMAGE = "IMAGE"  # 截图
-        VIDEO = "VIDEO"  # 录制视频
+        VIDEO = "VIDEO"  # 录制视频（无音频）
+        VIDEO_AUDIO = "VIDEO_AUDIO"  # 录制视频（含音频）
         AUDIO = "AUDIO"  # 录制音频
 
     # Application
@@ -85,6 +86,7 @@ class Config:
     check_similarity: bool = True
     write_translated_name_fields_to_file: bool = True
     auto_process_prefix_suffix_preserved_text: bool = True
+    ffmpeg_path: str = ""  # 自定义 ffmpeg 路径，留空则使用系统 PATH
 
     # LaboratoryPage
     force_thinking_enable: bool = True
