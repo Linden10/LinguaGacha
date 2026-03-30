@@ -117,7 +117,6 @@ class ReviewEngine(Base):
 
         try:
             config = Config().load()
-            dm = DataManager.get()
 
             # 解析审校使用的模型
             model = self.resolve_review_model(config)
