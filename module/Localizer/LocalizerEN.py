@@ -501,6 +501,7 @@ class LocalizerEN(LocalizerZH):
     proofreading_page_batch_reset_translation_confirm: str = (
         "Reset translation for all {COUNT} entries?"
     )
+    proofreading_page_review_selected: str = "AI Review Selected"
 
     # 工作台
     workbench_stat_file_count: str = "Files"
@@ -795,6 +796,23 @@ class LocalizerEN(LocalizerZH):
     review_page_scope_all: str = "Review All Files"
     review_page_scope_file: str = "Review Selected File"
     review_page_scope_failed: str = "Review Failed Lines"
+    review_page_scope: str = "Review Scope"
+    review_page_scope_desc: str = "Choose which items to include in the review"
+    review_page_scope_file_desc: str = "Select a file to review its translated lines"
+    review_page_no_file_selected: str = "Please select a file first …"
+    review_page_capture_enable: str = "Game Window Capture"
+    review_page_capture_enable_desc: str = "Capture screenshots or record video/audio from the game window for AI-assisted visual review (requires ffmpeg)"
+    review_page_capture_mode: str = "Capture Mode"
+    review_page_capture_mode_desc: str = "Screenshot sends an image to vision-capable models; Video/Audio records for reference"
+    review_page_capture_image: str = "Screenshot"
+    review_page_capture_video: str = "Video"
+    review_page_capture_audio: str = "Audio"
+    review_page_capture_window: str = "Game Window Title"
+    review_page_capture_window_desc: str = "Title of the game window to capture (must match exactly)"
+    review_page_capture_hotkey: str = "Advance Hotkey"
+    review_page_capture_hotkey_desc: str = "Key to send to the game window to advance dialogue (e.g. Enter, Space)"
+    review_page_capture_auto_advance: str = "Auto Advance"
+    review_page_capture_auto_advance_desc: str = "Automatically send the hotkey before capturing each line"
     review_page_progress: str = "Reviewing, line {CURRENT} of {TOTAL} …"
     review_page_done: str = "Review Complete"
     review_page_stopped: str = "Review Stopped"
