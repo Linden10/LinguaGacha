@@ -45,7 +45,6 @@ class LocalizerEN(LocalizerZH):
     confirm: str = "Confirm"
     cancel: str = "Cancel"
     auto: str = "Auto"
-    wiki: str = "Wiki"
     view_more_info: str = "View more info"
     filter: str = "Filter"
     search: str = "Search"
@@ -95,7 +94,10 @@ class LocalizerEN(LocalizerZH):
     search_regex_btn: str = "Regex"
     search_match_info: str = "Item {current} of {total}"
     search_no_result: str = "No results"
+    shortcut_ctrl_f: str = "Ctrl+F"
+    shortcut_ctrl_h: str = "Ctrl+H"
     shortcut_ctrl_s: str = "Ctrl+S"
+    shortcut_enter: str = "Enter"
 
     # 主页面
     app_close_message_box: str = "Are you sure you want to exit the application …?"
@@ -181,6 +183,21 @@ class LocalizerEN(LocalizerZH):
         "\n"
         "Note: mode=custom requires --text_preserve; providing --text_preserve requires mode=custom"
     )
+    log_cli_analysis_export_start: str = "Exporting glossary files …"
+    log_cli_analysis_export_success: str = (
+        "Glossary export completed …"
+        "\n"
+        "Directory: {DIR}"
+        "\n"
+        "JSON: {JSON}"
+        "\n"
+        "XLSX: {XLSX}"
+        "\n"
+        "Glossary Entries: {COUNT}"
+        "\n"
+        "Imported This Run: {IMPORTED}"
+    )
+    log_cli_analysis_export_failed: str = "Glossary export failed …"
 
     # 引擎
     engine_no_items: str = "No items to process were found, please check …"
@@ -361,7 +378,7 @@ class LocalizerEN(LocalizerZH):
     project_info_translated: str = "Translated: {COUNT}"
     project_info_total: str = "Total: {COUNT}"
     project_recent_empty: str = "No recent projects"
-    project_file_filter_lg: str = "LinguaGacha Project (*.lg)"
+    project_file_filter_lg: str = "Project File (*.lg)"
     project_error_read_preview: str = "Failed to read project preview: {ERROR}"
 
     # 翻译
@@ -481,7 +498,6 @@ class LocalizerEN(LocalizerZH):
     proofreading_page_batch_retranslate_with_context_confirm: str = "Retranslate all {COUNT} entries with preceding context?"
     proofreading_page_reset_translation: str = "Reset Translation"
     proofreading_page_reset_translation_confirm: str = "Reset translation for this entry?"
-    proofreading_page_batch_reset_translation: str = "Reset Selected"
     proofreading_page_batch_reset_translation_confirm: str = (
         "Reset translation for all {COUNT} entries?"
     )
@@ -498,16 +514,16 @@ class LocalizerEN(LocalizerZH):
     workbench_col_line_count: str = "Lines"
     workbench_col_actions: str = "Actions"
     workbench_btn_add_file: str = "Add File"
-    workbench_btn_update: str = "Update"
-    workbench_btn_reset: str = "Reset"
+    workbench_btn_replace: str = "Replace File"
+    workbench_btn_reset: str = "Reset Translation"
     workbench_btn_delete: str = "Delete"
     workbench_msg_delete_confirm: str = "Delete this file and all its translation items …?"
     workbench_msg_reset_confirm: str = "Reset translation status for this file …?"
-    workbench_msg_file_exists: str = "File already exists, please use Update"
+    workbench_msg_file_exists: str = "File already exists …"
     workbench_msg_unsupported_format: str = "Unsupported file format"
-    workbench_msg_update_format_mismatch: str = "File format mismatch, cannot update"
-    workbench_msg_update_confirm: str = "Update the current file with the selected file, current data will be preserved as possible"
-    workbench_msg_update_name_conflict: str = "{NAME} already exists …"
+    workbench_msg_replace_format_mismatch: str = "File format mismatch, cannot replace"
+    workbench_msg_replace_confirm: str = "Current translations will be preserved as much as possible"
+    workbench_msg_replace_name_conflict: str = "File already exists …"
     workbench_fmt_subtitle_file: str = "Subtitle File"
     workbench_fmt_text_file: str = "Plain Text"
     workbench_fmt_ebook: str = "EPUB"
@@ -519,10 +535,9 @@ class LocalizerEN(LocalizerZH):
     workbench_fmt_trans_export: str = "Translator++ XLSX"
     workbench_fmt_wolf: str = "WOLF Official Tool XLSX"
     workbench_update_stat: str = "Added {NEW}, kept {MATCHED} …"
-    workbench_progress_adding_file: str = "Adding file ..."
-    workbench_progress_updating_file: str = "Updating file ..."
-    workbench_progress_resetting_file: str = "Resetting file ..."
-    workbench_progress_deleting_file: str = "Deleting file ..."
+    workbench_progress_adding_file: str = "Adding file …"
+    workbench_progress_resetting_file: str = "Resetting file …"
+    workbench_progress_deleting_file: str = "Deleting file …"
     workbench_msg_file_not_found: str = "File not found"
 
     # 基础设置
@@ -643,7 +658,6 @@ class LocalizerEN(LocalizerZH):
     # 术语表
     glossary_page_head_content: str = "By building a glossary in the prompt to guide model translation, unified translation and correction of personal pronouns can be achieved"
     glossary_page_table_row_04: str = "Description"
-    glossary_page_kg: str = "One-Click Tools"
 
     # 文本保护
     text_preserve_page_head_content: str = (
@@ -662,19 +676,11 @@ class LocalizerEN(LocalizerZH):
 
     # 译前替换
     pre_translation_replacement_page_head_title: str = "Pre-translation Replacement"
-    pre_translation_replacement_page_head_content: str = (
-        "Before translation, matched parts of the original text will be replaced by specified text, processed in top-down order"
-        "<br>"
-        "For <font color='darkgoldenrod'><b>RPGMaker MV/MZ</b></font> engine games:"
-        "<br>"
-        "• Importing <font color='darkgoldenrod'><b>actors.json</b></font> from <font color='darkgoldenrod'><b>data</b></font> or <font color='darkgoldenrod'><b>www\\data</b></font> in the game directory can improve translation quality"
-        "<br>"
-        "• Special handling is needed for games with custom names. Click the bottom-right button to see <font color='darkgoldenrod'><b>Wiki</b></font> instructions"
-    )
+    pre_translation_replacement_page_head_content: str = "Before translation, matched parts of the original text will be replaced by specified text, processed in top-down order"
 
     # 译后替换
     post_translation_replacement_page_head_title: str = "Post-translation Replacement"
-    post_translation_replacement_page_head_content: str = "After translation is completed, replace the matched parts in the translated text with the specified text, the execution order is from top to bottom"
+    post_translation_replacement_page_head_content: str = "After translation, matched parts of the original text will be replaced by specified text, processed in top-down order"
 
     # 自定义提示词 - 翻译
     translation_prompt_page_head: str = "Custom Translation Prompts (SakuraLLM model not supported)"
@@ -736,7 +742,7 @@ class LocalizerEN(LocalizerZH):
     name_field_extraction_page_desc: str = (
         "Extract character name fields from all eligible files in the <font color='darkgoldenrod'><b>input folder</b></font> and automatically generate corresponding glossary data"
         "<br>"
-        "Please note: This function <font color='darkgoldenrod'><b>cannot extract terms from the main text</b></font>, and cannot replace the <font color='darkgoldenrod'><b>KeywordGacha</b></font> tool"
+        "Please note: This function <font color='darkgoldenrod'><b>cannot extract terms from the main text</b></font>"
         "<br>"
         "Supported formats:"
         "<br>"

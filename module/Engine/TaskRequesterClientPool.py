@@ -74,7 +74,10 @@ class TaskRequesterClientPool:
     @staticmethod
     def get_default_headers() -> dict:
         return {
-            "User-Agent": f"LinguaGacha/{VersionManager.get().get_version()} (https://github.com/neavo/LinguaGacha)"
+            "User-Agent": (
+                f"{Base.USER_AGENT_NAME}/{VersionManager.get().get_version()} "
+                f"({Base.REPO_URL})"
+            )
         }
 
     @classmethod

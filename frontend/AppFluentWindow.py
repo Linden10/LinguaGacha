@@ -22,6 +22,7 @@ from qfluentwidgets import Theme
 from qfluentwidgets import isDarkTheme
 from qfluentwidgets import setTheme
 from qfluentwidgets import setThemeColor
+from qfluentwidgets.components.navigation.navigation_panel import RouteKeyError
 
 from base.Base import Base
 from base.BaseIcon import BaseIcon
@@ -48,26 +49,19 @@ from frontend.Translation.TranslationPage import TranslationPage
 from frontend.Workbench.WorkbenchPage import WorkbenchPage
 from module.Config import Config
 from module.Data.DataManager import DataManager
-from module.Engine.Engine import Engine
 from module.Localizer.Localizer import Localizer
-from module.PromptResourceResolver import PromptResourceResolver
+from module.PromptPathResolver import PromptPathResolver
 from widget.ProgressToast import ProgressToast
 
 # ==================== 图标常量 ====================
 # 这里统一抽取页面/导航用到的图标，便于按语义检查与后续替换。
-
-ICON_NAV_THEME: BaseIcon = BaseIcon.SUN_MOON  # 侧边栏：主题切换
-ICON_NAV_LANGUAGE: BaseIcon = BaseIcon.GLOBE  # 侧边栏：语言切换
-ICON_NAV_APP_SETTINGS: BaseIcon = BaseIcon.COG  # 侧边栏底部：应用设置入口
-
 ICON_NAV_MODEL: BaseIcon = BaseIcon.SLACK  # 侧边栏：模型管理
-ICON_NAV_TRANSLATION: BaseIcon = BaseIcon.LANGUAGES  # 侧边栏：翻译任务
+ICON_NAV_TRANSLATION: BaseIcon = BaseIcon.SCAN_TEXT  # 侧边栏：翻译任务
 ICON_NAV_ANALYSIS: BaseIcon = BaseIcon.RADAR  # 侧边栏：术语分析任务
 ICON_NAV_PROOFREADING: BaseIcon = BaseIcon.GRID_2X2_CHECK  # 侧边栏：校对任务
 ICON_NAV_WORKBENCH: BaseIcon = BaseIcon.LAYOUT_DASHBOARD  # 侧边栏：工作台
-ICON_NAV_CLOSE_PROJECT: BaseIcon = BaseIcon.SQUARE_POWER  # 侧边栏：关闭当前工程
 
-ICON_NAV_BASIC_SETTINGS: BaseIcon = BaseIcon.SETTINGS  # 侧边栏：基础设置
+ICON_NAV_BASIC_SETTINGS: BaseIcon = BaseIcon.SLIDERS_HORIZONTAL  # 侧边栏：基础设置
 ICON_NAV_EXPERT_SETTINGS: BaseIcon = BaseIcon.GRADUATION_CAP  # 侧边栏：专家设置
 
 ICON_NAV_GLOSSARY: BaseIcon = BaseIcon.BOOK_A  # 侧边栏：术语表
@@ -78,12 +72,15 @@ ICON_NAV_POST_REPLACEMENT: BaseIcon = BaseIcon.BETWEEN_VERTICAL_END  # 侧边栏
 
 ICON_NAV_CUSTOM_PROMPT: BaseIcon = BaseIcon.BOOK_OPEN_CHECK  # 侧边栏：自定义提示词入口
 ICON_NAV_ANALYSIS_PROMPT: BaseIcon = BaseIcon.RADAR  # 自定义提示词：分析页
-ICON_NAV_TRANSLATION_PROMPT: BaseIcon = (
-    ICON_NAV_TRANSLATION  # 自定义提示词：翻译页，与主翻译页保持一致
-)
+ICON_NAV_TRANSLATION_PROMPT: BaseIcon = BaseIcon.SCAN_TEXT  # 自定义提示词：翻译页
 
 ICON_NAV_LABORATORY: BaseIcon = BaseIcon.FLASK_CONICAL  # 侧边栏：实验室
 ICON_NAV_TOOLBOX: BaseIcon = BaseIcon.SPARKLES  # 侧边栏：百宝箱
+
+ICON_NAV_THEME: BaseIcon = BaseIcon.SUN_MOON  # 侧边栏：主题切换
+ICON_NAV_LANGUAGE: BaseIcon = BaseIcon.LANGUAGES  # 侧边栏：语言切换
+ICON_NAV_APP_SETTINGS: BaseIcon = BaseIcon.SETTINGS  # 侧边栏底部：应用设置入口
+HOME_PAGE_ICON_PATH: str = "resource/icon.png"  # 项目主页头像图标
 
 
 class AppFluentWindow(Base, FluentWindow):
@@ -91,6 +88,9 @@ class AppFluentWindow(Base, FluentWindow):
     APP_HEIGHT: int = 800
     APP_THEME_COLOR: str = "#BCA483"
     HOMEPAGE: str = " Ciallo～(∠・ω< )⌒✮"
+    HOMEPAGE_AVATAR_RADIUS: int = 10
+    HOMEPAGE_AVATAR_X: int = 10
+    HOMEPAGE_AVATAR_Y: int = 8
 
     def __init__(self) -> None:
         # FramelessWindow 在构造过程中可能触发 resizeEvent；先占位避免属性尚未初始化。
@@ -104,7 +104,7 @@ class AppFluentWindow(Base, FluentWindow):
         # 设置窗口属性
         self.resize(AppFluentWindow.APP_WIDTH, AppFluentWindow.APP_HEIGHT)
         self.setMinimumSize(AppFluentWindow.APP_WIDTH, AppFluentWindow.APP_HEIGHT)
-        self.setWindowTitle(f"LinguaGacha {VersionManager.get().get_version()}")
+        self.setWindowTitle(f"{Base.APP_NAME} {VersionManager.get().get_version()}")
         self.titleBar.iconLabel.hide()
 
         # 设置启动位置
@@ -157,33 +157,8 @@ class AppFluentWindow(Base, FluentWindow):
             0, lambda: VersionManager.get().emit_pending_apply_failure_if_exists()
         )
 
-        # 监控运行任务，动态禁用关闭项目按钮
-        self.task_monitor_timer = QTimer(self)
-        self.task_monitor_timer.timeout.connect(self.check_running_tasks)
-        self.task_monitor_timer.start(500)
-
         # 记录用户在未加载工程时的页面跳转意图
         self.pending_target_interface: QWidget | None = None
-
-    def check_running_tasks(self) -> None:
-        """检查是否有后台任务运行，动态更新'关闭项目'按钮状态"""
-        # 如果没有加载项目，按钮本身就是隐藏的（由 update_navigation_status 控制），无需处理
-        if not DataManager.get().is_loaded():
-            return
-
-        btn_widget = self.navigationInterface.widget("close_project_button")
-        if not btn_widget:
-            return
-
-        # 检查是否繁忙：Engine 状态非 IDLE 或 有后台任务线程
-        is_busy = (
-            Engine.get().get_status() != Base.TaskStatus.IDLE
-            or Engine.get().get_running_task_count() > 0
-        )
-
-        # 状态变更时更新
-        if btn_widget.isEnabled() == is_busy:
-            btn_widget.setEnabled(not is_busy)
 
     def switchTo(self, interface: QWidget):
         """切换页面"""
@@ -227,15 +202,18 @@ class AppFluentWindow(Base, FluentWindow):
 
         # 遍历设置状态
         for key in disable_names:
-            widget = self.navigationInterface.widget(key)
+            widget = self.get_navigation_widget(key)
             if widget:
                 widget.setEnabled(is_loaded)
 
-        # 设置关闭项目按钮的可见性
-        if self.navigationInterface.widget("close_project_button"):
-            self.navigationInterface.widget("close_project_button").setVisible(
-                is_loaded
-            )
+    def get_navigation_widget(self, key: str) -> QWidget | None:
+        """安全获取导航项；未注册的路由直接跳过。"""
+
+        try:
+            return self.navigationInterface.widget(key)
+        except RouteKeyError:
+            # 某些子页面未注册时，这里直接视为“没有这个导航项”。
+            return None
 
     def is_project_dependent(self, interface: QWidget) -> bool:
         """判断页面是否依赖工程"""
@@ -439,25 +417,30 @@ class AppFluentWindow(Base, FluentWindow):
 
     # 关闭当前项目
     def close_current_project(self) -> None:
-        if DataManager.get().is_loaded():
-            # 二次确认
-            box = MessageBox(
-                Localizer.get().warning,
-                Localizer.get().project_msg_close_confirm,
-                self,
-            )
-            box.yesButton.setText(Localizer.get().confirm)
-            box.cancelButton.setText(Localizer.get().cancel)
+        data_manager = DataManager.get()
+        if not data_manager.is_loaded():
+            return
 
-            if box.exec():
-                DataManager.get().unload_project()
-                self.emit(
-                    Base.Event.TOAST,
-                    {
-                        "type": Base.ToastType.SUCCESS,
-                        "message": Localizer.get().app_project_closed_toast,
-                    },
-                )
+        # 二次确认
+        box = MessageBox(
+            Localizer.get().warning,
+            Localizer.get().project_msg_close_confirm,
+            self,
+        )
+        box.yesButton.setText(Localizer.get().confirm)
+        box.cancelButton.setText(Localizer.get().cancel)
+
+        if not box.exec():
+            return
+
+        data_manager.unload_project()
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.SUCCESS,
+                "message": Localizer.get().app_project_closed_toast,
+            },
+        )
 
     # 打开主页
     def open_project_page(self) -> None:
@@ -500,7 +483,7 @@ class AppFluentWindow(Base, FluentWindow):
                 {"sub_event": Base.SubEvent.REQUEST},
             )
         else:
-            QDesktopServices.openUrl(QUrl("https://github.com/neavo/LinguaGacha"))
+            QDesktopServices.openUrl(QUrl(Base.REPO_URL))
 
     # 更新 - 检查完成
     def app_update_check_done(self, event: Base.Event, data: dict) -> None:
@@ -614,7 +597,13 @@ class AppFluentWindow(Base, FluentWindow):
         # 项目主页按钮
         self.home_page_widget = NavigationAvatarWidget(
             __class__.HOMEPAGE,
-            "resource/icon_full.png",
+            HOME_PAGE_ICON_PATH,
+        )
+        # 只缩小头像图标本体，不改导航项点击区域，避免底部入口布局抖动。
+        self.home_page_widget.avatar.setRadius(__class__.HOMEPAGE_AVATAR_RADIUS)
+        self.home_page_widget.avatar.move(
+            __class__.HOMEPAGE_AVATAR_X,
+            __class__.HOMEPAGE_AVATAR_Y,
         )
         self.navigationInterface.addWidget(
             routeKey="avatar_navigation_widget",
@@ -678,19 +667,6 @@ class AppFluentWindow(Base, FluentWindow):
             ICON_NAV_WORKBENCH.qicon(),
             Localizer.get().app_workbench_page,
             NavigationItemPosition.SCROLL,
-        )
-
-        # 关闭项目按钮
-        close_project_button = NavigationPushButton(
-            ICON_NAV_CLOSE_PROJECT.qicon(),
-            Localizer.get().app_close_project_btn,
-            False,
-        )
-        self.navigationInterface.addWidget(
-            routeKey="close_project_button",
-            widget=close_project_button,
-            onClick=self.close_current_project,
-            position=NavigationItemPosition.SCROLL,
         )
 
     # 添加设置类页面
@@ -775,7 +751,7 @@ class AppFluentWindow(Base, FluentWindow):
             CustomPromptPage(
                 "translation_prompt_page",
                 self,
-                PromptResourceResolver.TaskType.TRANSLATION,
+                PromptPathResolver.TaskType.TRANSLATION,
             ),
             ICON_NAV_TRANSLATION_PROMPT.qicon(),
             Localizer.get().app_translation_prompt_page,
@@ -785,7 +761,7 @@ class AppFluentWindow(Base, FluentWindow):
             CustomPromptPage(
                 "analysis_prompt_page",
                 self,
-                PromptResourceResolver.TaskType.ANALYSIS,
+                PromptPathResolver.TaskType.ANALYSIS,
             ),
             ICON_NAV_ANALYSIS_PROMPT.qicon(),
             Localizer.get().app_analysis_prompt_page,

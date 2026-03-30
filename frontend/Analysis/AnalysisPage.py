@@ -31,7 +31,7 @@ from widget.WaveformWidget import WaveformWidget
 ICON_ACTION_START: BaseIcon = BaseIcon.PLAY
 ICON_ACTION_CONTINUE: BaseIcon = BaseIcon.ROTATE_CW
 ICON_ACTION_STOP: BaseIcon = BaseIcon.CIRCLE_STOP
-ICON_ACTION_RESET: BaseIcon = BaseIcon.ERASER
+ICON_ACTION_RESET: BaseIcon = BaseIcon.RECYCLE
 ICON_ACTION_RESET_FAILED: BaseIcon = BaseIcon.PAINTBRUSH
 ICON_ACTION_RESET_ALL: BaseIcon = BaseIcon.BRUSH_CLEANING
 ICON_ACTION_IMPORT: BaseIcon = BaseIcon.FILE_DOWN
@@ -321,6 +321,7 @@ class AnalysisPage(Base, QWidget):
         self.add_command_bar_action_stop(self.command_bar_card, window)
         self.command_bar_card.add_separator()
         self.add_command_bar_action_reset(self.command_bar_card, window)
+        self.command_bar_card.add_separator()
         self.add_command_bar_action_import(self.command_bar_card)
         self.command_bar_card.add_stretch(1)
 

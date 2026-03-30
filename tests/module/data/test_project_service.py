@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from base.BasePath import BasePath
 from model.Item import Item
 from module.Data.Project.ProjectService import ProjectService
 
@@ -145,8 +146,8 @@ def test_create_ingests_assets_parses_items_and_writes_meta(
     fs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del fs
-    monkeypatch.delenv("LINGUAGACHA_DATA_DIR", raising=False)
-    monkeypatch.setenv("LINGUAGACHA_APP_DIR", "/workspace/app")
+    BasePath.reset_for_test()
+    BasePath.initialize("/workspace/app", False)
 
     service = ProjectService()
     progress: list[tuple[int, int, str]] = []
@@ -252,7 +253,8 @@ def test_create_skips_read_failures_and_continues(
     fs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del fs
-    monkeypatch.setenv("LINGUAGACHA_APP_DIR", "/workspace/app")
+    BasePath.reset_for_test()
+    BasePath.initialize("/workspace/app", False)
 
     service = ProjectService()
     src_dir = Path("/workspace/project_service/src")
@@ -319,7 +321,8 @@ def test_create_logs_parse_errors_but_keeps_asset(
     fs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del fs
-    monkeypatch.setenv("LINGUAGACHA_APP_DIR", "/workspace/app")
+    BasePath.reset_for_test()
+    BasePath.initialize("/workspace/app", False)
 
     service = ProjectService()
     src_dir = Path("/workspace/project_service/src")
@@ -370,7 +373,8 @@ def test_create_logs_mtool_prefilter_count_when_optimizer_enabled(
     fs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del fs
-    monkeypatch.setenv("LINGUAGACHA_APP_DIR", "/workspace/app")
+    BasePath.reset_for_test()
+    BasePath.initialize("/workspace/app", False)
 
     service = ProjectService()
     src_dir = Path("/workspace/project_service/src")

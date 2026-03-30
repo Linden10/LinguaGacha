@@ -135,7 +135,6 @@ class DataManager(Base):
             self.on_translation_activity,
         )
         self.subscribe(Base.Event.CONFIG_UPDATED, self.on_config_updated)
-        self.subscribe(Base.Event.PROJECT_LOADED, self.on_project_loaded)
 
     @classmethod
     def get(cls) -> "DataManager":
@@ -151,6 +150,7 @@ class DataManager(Base):
         if self.is_loaded():
             self.unload_project()
         self.lifecycle_service.load_project(lg_path)
+        self.handle_project_loaded_post_actions()
         self.emit(Base.Event.PROJECT_LOADED, {"path": lg_path})
 
     def unload_project(self) -> None:
@@ -217,13 +217,11 @@ class DataManager(Base):
         if should_emit_refresh and self.is_loaded():
             self.emit(Base.Event.WORKBENCH_REFRESH, {"reason": event.value})
 
-    def on_project_loaded(self, event: Base.Event, data: dict) -> None:
-        """工程加载后按当前配置补跑一次预过滤。"""
-
-        del event
-        del data
-
-        self.schedule_prefilter_if_needed(reason="project_loaded")
+    def handle_project_loaded_post_actions(self) -> None:
+        """在工程真正对外可见前完成加载后补处理。"""
+        if self.schedule_prefilter_if_needed(reason="project_loaded"):
+            return
+        self.refresh_analysis_progress_snapshot_cache()
 
     def on_config_updated(self, event: Base.Event, data: dict) -> None:
         """关键配置变化后补跑预过滤。"""
@@ -241,12 +239,14 @@ class DataManager(Base):
 
         self.schedule_prefilter_if_needed(reason="config_updated")
 
-    def schedule_prefilter_if_needed(self, *, reason: str) -> None:
+    def schedule_prefilter_if_needed(self, *, reason: str) -> bool:
         """按当前配置判断是否需要补跑预过滤。"""
 
         config = Config().load()
         if self.is_prefilter_needed(config):
             self.schedule_project_prefilter(config, reason=reason)
+            return True
+        return False
 
     def is_prefilter_needed(self, config: Config) -> bool:
         """判断当前工程是否需要重跑预过滤。"""
@@ -338,6 +338,7 @@ class DataManager(Base):
                 request = self.prefilter_service.pop_pending_request()
                 if request is None:
                     if updated and last_request is not None and last_result is not None:
+                        self.refresh_analysis_progress_snapshot_cache()
                         self.log_prefilter_result(last_request, last_result)
                         self.emit(
                             Base.Event.PROJECT_PREFILTER,
@@ -586,6 +587,21 @@ class DataManager(Base):
             progress_snapshot=progress_snapshot,
         )
 
+    def commit_analysis_task_batch(
+        self,
+        *,
+        success_checkpoints: list[dict[str, Any]] | None = None,
+        error_checkpoints: list[dict[str, Any]] | None = None,
+        glossary_entries: list[dict[str, Any]] | None = None,
+        progress_snapshot: dict[str, Any] | None = None,
+    ) -> int:
+        return self.analysis_service.commit_analysis_task_batch(
+            success_checkpoints=success_checkpoints,
+            error_checkpoints=error_checkpoints,
+            glossary_entries=glossary_entries,
+            progress_snapshot=progress_snapshot,
+        )
+
     def build_analysis_glossary_from_candidates(self) -> list[dict[str, Any]]:
         return self.analysis_service.build_analysis_glossary_from_candidates()
 
@@ -631,6 +647,9 @@ class DataManager(Base):
     def get_analysis_progress_snapshot(self) -> dict[str, Any]:
         return self.analysis_service.get_analysis_progress_snapshot()
 
+    def refresh_analysis_progress_snapshot_cache(self) -> dict[str, Any]:
+        return self.analysis_service.refresh_analysis_progress_snapshot_cache()
+
     def update_analysis_progress_snapshot(
         self,
         snapshot: dict[str, Any],
@@ -654,11 +673,6 @@ class DataManager(Base):
         """翻译域统一入口，避免继续从分析服务借道。"""
 
         return self.translation_reset_service.reset_failed_translation_items_sync()
-
-    def reset_failed_items_sync(self) -> dict[str, Any] | None:
-        """兼容旧入口，内部已切到翻译域服务。"""
-
-        return self.reset_failed_translation_items_sync()
 
     def get_rules_cached(self, rule_type: LGDatabase.RuleType) -> list[dict[str, Any]]:
         return self.quality_rule_service.get_rules_cached(rule_type)
@@ -958,11 +972,11 @@ class DataManager(Base):
             f"Failed to add file: {file_path}",
         )
 
-    def schedule_update_file(self, rel_path: str, new_file_path: str) -> None:
+    def schedule_replace_file(self, rel_path: str, new_file_path: str) -> None:
         self.schedule_guarded_file_operation(
-            Localizer.get().workbench_progress_updating_file,
-            lambda: self.project_file_service.update_file(rel_path, new_file_path),
-            f"Failed to update file: {rel_path} -> {new_file_path}",
+            Localizer.get().toast_processing,
+            lambda: self.project_file_service.replace_file(rel_path, new_file_path),
+            f"Failed to replace file: {rel_path} -> {new_file_path}",
         )
 
     def schedule_reset_file(self, rel_path: str) -> None:
@@ -982,8 +996,8 @@ class DataManager(Base):
     def add_file(self, file_path: str) -> None:
         self.emit_project_file_update(self.project_file_service.add_file(file_path))
 
-    def update_file(self, rel_path: str, new_file_path: str) -> dict[str, int]:
-        result = self.project_file_service.update_file(rel_path, new_file_path)
+    def replace_file(self, rel_path: str, new_file_path: str) -> dict[str, int]:
+        result = self.project_file_service.replace_file(rel_path, new_file_path)
         self.emit_project_file_update(result)
         return {
             "matched": result.matched,

@@ -45,7 +45,6 @@ class LocalizerZH:
     confirm: str = "确认"
     cancel: str = "取消"
     auto: str = "自动"
-    wiki: str = "功能说明"
     view_more_info: str = "查看更多信息"
     filter: str = "过滤"
     search: str = "搜索"
@@ -95,7 +94,10 @@ class LocalizerZH:
     search_regex_btn: str = "正则"
     search_match_info: str = "第 {current} 项，共 {total} 项"
     search_no_result: str = "无结果"
+    shortcut_ctrl_f: str = "Ctrl+F"
+    shortcut_ctrl_h: str = "Ctrl+H"
     shortcut_ctrl_s: str = "Ctrl+S"
+    shortcut_enter: str = "Enter"
 
     # 主页面
     app_close_message_box: str = "确定是否退出程序 …?"
@@ -181,6 +183,21 @@ class LocalizerZH:
         "\n"
         "说明：mode=custom 时必须提供 --text_preserve；提供 --text_preserve 时 mode 必须为 custom"
     )
+    log_cli_analysis_export_start: str = "正在导出术语表文件 …"
+    log_cli_analysis_export_success: str = (
+        "术语表导出完成 …"
+        "\n"
+        "目录：{DIR}"
+        "\n"
+        "JSON：{JSON}"
+        "\n"
+        "XLSX：{XLSX}"
+        "\n"
+        "术语条数：{COUNT}"
+        "\n"
+        "本轮导入：{IMPORTED}"
+    )
+    log_cli_analysis_export_failed: str = "术语表导出失败 …"
 
     # 引擎
     engine_no_items: str = "没有找到需要处理数据，请确认 …"
@@ -361,7 +378,7 @@ class LocalizerZH:
     project_info_translated: str = "已翻译: {COUNT} 行"
     project_info_total: str = "总计: {COUNT} 行"
     project_recent_empty: str = "暂无最近打开的工程"
-    project_file_filter_lg: str = "LinguaGacha 工程 (*.lg)"
+    project_file_filter_lg: str = "工程文件 (*.lg)"
     project_error_read_preview: str = "读取工程预览失败: {ERROR}"
 
     # 翻译
@@ -481,7 +498,6 @@ class LocalizerZH:
     proofreading_page_batch_retranslate_with_context_confirm: str = "确定携带上文重新翻译全部 {COUNT} 个条目？"
     proofreading_page_reset_translation: str = "重置翻译状态"
     proofreading_page_reset_translation_confirm: str = "确定重置此条目的翻译？"
-    proofreading_page_batch_reset_translation: str = "重置已选条目翻译状态"
     proofreading_page_batch_reset_translation_confirm: str = (
         "确定重置全部 {COUNT} 个条目的翻译？"
     )
@@ -498,16 +514,16 @@ class LocalizerZH:
     workbench_col_line_count: str = "行数"
     workbench_col_actions: str = "操作"
     workbench_btn_add_file: str = "添加文件"
-    workbench_btn_update: str = "更新"
-    workbench_btn_reset: str = "重置"
+    workbench_btn_replace: str = "替换文件"
+    workbench_btn_reset: str = "重置翻译状态"
     workbench_btn_delete: str = "删除"
     workbench_msg_delete_confirm: str = "确定要删除该文件及其所有翻译条目吗 …?"
     workbench_msg_reset_confirm: str = "确定要重置该文件的翻译状态吗 …?"
-    workbench_msg_file_exists: str = "文件已存在，请使用更新功能"
+    workbench_msg_file_exists: str = "文件已存在 …"
     workbench_msg_unsupported_format: str = "不支持的文件格式"
-    workbench_msg_update_format_mismatch: str = "文件格式不一致，无法更新"
-    workbench_msg_update_confirm: str = "使用所选文件更新当前文件，当前的翻译数据将尽可能的保留"
-    workbench_msg_update_name_conflict: str = "{NAME} 已存在 …"
+    workbench_msg_replace_format_mismatch: str = "文件格式不一致，无法替换"
+    workbench_msg_replace_confirm: str = "当前文件的翻译数据将尽可能的保留"
+    workbench_msg_replace_name_conflict: str = "文件已存在 …"
     workbench_fmt_subtitle_file: str = "字幕文件"
     workbench_fmt_text_file: str = "纯文本"
     workbench_fmt_ebook: str = "EPUB"
@@ -520,7 +536,6 @@ class LocalizerZH:
     workbench_fmt_wolf: str = "WOLF 官方工具 XLSX"
     workbench_update_stat: str = "新增 {NEW} 条，保留 {MATCHED} 条 …"
     workbench_progress_adding_file: str = "正在添加文件 …"
-    workbench_progress_updating_file: str = "正在更新文件 …"
     workbench_progress_resetting_file: str = "正在重置文件 …"
     workbench_progress_deleting_file: str = "正在删除文件 …"
     workbench_msg_file_not_found: str = "文件不存在 …"
@@ -643,7 +658,6 @@ class LocalizerZH:
     # 术语表
     glossary_page_head_content: str = "通过在提示词中构建术语表来引导模型翻译，可实现统一翻译、矫正人称属性等功能"
     glossary_page_table_row_04: str = "描述"
-    glossary_page_kg: str = "一键制作工具"
 
     # 文本保护
     text_preserve_page_head_content: str = (
@@ -662,15 +676,7 @@ class LocalizerZH:
 
     # 译前替换
     pre_translation_replacement_page_head_title: str = "译前替换"
-    pre_translation_replacement_page_head_content: str = (
-        "在翻译开始前，将原文中匹配的部分替换为指定的文本，执行的顺序为从上到下依次替换"
-        "<br>"
-        "对于 <font color='darkgoldenrod'><b>RPGMaker MV/MZ</b></font> 引擎的游戏："
-        "<br>"
-        "• 导入游戏目录的 <font color='darkgoldenrod'><b>data</b></font> 或者 <font color='darkgoldenrod'><b>www\\data</b></font> 文件夹内的 <font color='darkgoldenrod'><b>actors.json</b></font> 文件可以显著提升翻译质量"
-        "<br>"
-        "• 游戏中包含自定义姓名功能时需要进行特殊处理，请点击右下角按钮跳转并仔细阅读 <font color='darkgoldenrod'><b>Wiki</b></font> 相关页面中的说明"
-    )
+    pre_translation_replacement_page_head_content: str = "在翻译开始前，将原文中匹配的部分替换为指定的文本，执行的顺序为从上到下依次替换"
 
     # 译后替换
     post_translation_replacement_page_head_title: str = "译后替换"
@@ -736,7 +742,7 @@ class LocalizerZH:
     name_field_extraction_page_desc: str = (
         "将从 <font color='darkgoldenrod'><b>输入文件夹</b></font> 中所有符合条件的文件中提取角色姓名字段，自动生成对应的术语表数据"
         "<br>"
-        "请注意：此功能 <font color='darkgoldenrod'><b>不能提取正文内的术语</b></font>，不能代替 <font color='darkgoldenrod'><b>KeywordGacha</b></font> 工具"
+        "请注意：此功能 <font color='darkgoldenrod'><b>不能提取正文内的术语</b></font>"
         "<br>"
         "支持格式："
         "<br>"

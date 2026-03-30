@@ -101,6 +101,26 @@ class CreateProjectThread(QThread):
             self.finished_signal.emit(False, str(e))
 
 
+class OpenProjectThread(QThread):
+    """打开旧工程后台线程。"""
+
+    # 信号：(是否成功, 结果数据/错误信息)
+    finished_signal = Signal(bool, object)
+
+    def __init__(self, lg_path: str) -> None:
+        super().__init__()
+        self.lg_path = lg_path
+
+    def run(self) -> None:
+        try:
+            # 旧工程打开期间没有可复用的细粒度进度，只需要保证整段加载脱离 UI 线程。
+            DataManager.get().load_project(self.lg_path)
+            self.finished_signal.emit(True, None)
+        except Exception as e:
+            LogManager.get().error(f"Failed to open project: {self.lg_path}", e)
+            self.finished_signal.emit(False, str(e))
+
+
 class FileDisplayCard(CardWidget):
     """文件展示卡片基类"""
 
@@ -129,7 +149,9 @@ class FileDisplayCard(CardWidget):
 
     def update_style(self):
         """更新样式，适配亮/暗色主题"""
-        border_color = "rgba(255, 255, 255, 0.1)" if isDarkTheme() else "rgba(0, 0, 0, 0.1)"
+        border_color = (
+            "rgba(255, 255, 255, 0.1)" if isDarkTheme() else "rgba(0, 0, 0, 0.1)"
+        )
 
         # 计算 hover 背景色 (使用极低透明度的主题色)
         c = themeColor()
@@ -167,23 +189,31 @@ class DropZone(FileDisplayCard):
     clicked = Signal()  # 点击信号
     clear_clicked = Signal()  # 清除信号
 
-    def __init__(self, icon: FluentIconBase, title: str, subtitle: str, parent=None) -> None:
+    def __init__(
+        self, icon: FluentIconBase, title: str, subtitle: str, parent=None
+    ) -> None:
         super().__init__(parent)
 
         # 图标
         self.icon_widget = IconWidget(icon, self)
         self.icon_widget.setFixedSize(48, 48)
-        self.main_layout.addWidget(self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(
+            self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter
+        )
 
         # 标题
         self.display_title = title
         self.title_label = StrongBodyLabel(title, self)
         # 允许被布局压缩，避免超长文件名撑开卡片。
-        self.title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.title_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.title_label.setMinimumWidth(0)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setToolTip(self.display_title)
-        self.title_label.installEventFilter(ToolTipFilter(self.title_label, 300, ToolTipPosition.TOP))
+        self.title_label.installEventFilter(
+            ToolTipFilter(self.title_label, 300, ToolTipPosition.TOP)
+        )
         self.main_layout.addWidget(self.title_label)
 
         # 副标题
@@ -232,7 +262,9 @@ class DropZone(FileDisplayCard):
             return
 
         metrics = self.title_label.fontMetrics()
-        elided = metrics.elidedText(self.display_title, Qt.TextElideMode.ElideRight, available_width)
+        elided = metrics.elidedText(
+            self.display_title, Qt.TextElideMode.ElideRight, available_width
+        )
         self.title_label.setText(elided)
         self.title_label.setToolTip(self.display_title)
 
@@ -271,21 +303,31 @@ class SelectedFileDisplay(FileDisplayCard):
         # 图标
         self.icon_widget = IconWidget(ICON_FILE, self)
         self.icon_widget.setFixedSize(48, 48)
-        self.main_layout.addWidget(self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(
+            self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter
+        )
 
         # 文件名
         self.display_name = file_name
         self.name_label = StrongBodyLabel(file_name, self)
         # 允许被布局压缩，避免超长文件名撑开卡片。
-        self.name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.name_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.name_label.setMinimumWidth(0)
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label.setToolTip(self.display_name)
-        self.name_label.installEventFilter(ToolTipFilter(self.name_label, 300, ToolTipPosition.TOP))
+        self.name_label.installEventFilter(
+            ToolTipFilter(self.name_label, 300, ToolTipPosition.TOP)
+        )
         self.main_layout.addWidget(self.name_label)
 
         # 状态
-        status_text = Localizer.get().project_project_ready if is_ready else Localizer.get().project_project_preparing
+        status_text = (
+            Localizer.get().project_project_ready
+            if is_ready
+            else Localizer.get().project_project_preparing
+        )
         status_label = CaptionLabel(status_text, self)
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(status_label)
@@ -315,7 +357,9 @@ class SelectedFileDisplay(FileDisplayCard):
             return
 
         metrics = self.name_label.fontMetrics()
-        elided = metrics.elidedText(self.display_name, Qt.TextElideMode.ElideRight, available_width)
+        elided = metrics.elidedText(
+            self.display_name, Qt.TextElideMode.ElideRight, available_width
+        )
         self.name_label.setText(elided)
         self.name_label.setToolTip(self.display_name)
 
@@ -378,7 +422,9 @@ class RecentProjectItem(QFrame):
         text_layout.addWidget(name_label)
 
         self.path_label = CaptionLabel(display_path, self)
-        self.path_label.setTextColor(QColor(96, 96, 96), QColor(160, 160, 160))  # 参考 ModelSelectorPage 的灰色
+        self.path_label.setTextColor(
+            QColor(96, 96, 96), QColor(160, 160, 160)
+        )  # 参考 ModelSelectorPage 的灰色
         text_layout.addWidget(self.path_label)
 
         # 保存完整路径用于截断显示
@@ -403,7 +449,9 @@ class RecentProjectItem(QFrame):
         available_width = self.path_label.width()
         if available_width > 0:
             metrics = self.path_label.fontMetrics()
-            elided = metrics.elidedText(self.display_path, Qt.TextElideMode.ElideRight, available_width)
+            elided = metrics.elidedText(
+                self.display_path, Qt.TextElideMode.ElideRight, available_width
+            )
             self.path_label.setText(elided)
 
     def mousePressEvent(self, event) -> None:
@@ -412,8 +460,12 @@ class RecentProjectItem(QFrame):
         super().mousePressEvent(event)
 
     def enterEvent(self, event) -> None:
-        bg_color = "rgba(255, 255, 255, 0.05)" if isDarkTheme() else "rgba(0, 0, 0, 0.05)"
-        self.setStyleSheet(f"RecentProjectItem {{ background-color: {bg_color}; border-radius: 4px; }}")
+        bg_color = (
+            "rgba(255, 255, 255, 0.05)" if isDarkTheme() else "rgba(0, 0, 0, 0.05)"
+        )
+        self.setStyleSheet(
+            f"RecentProjectItem {{ background-color: {bg_color}; border-radius: 4px; }}"
+        )
         self.remove_btn.show()
 
     def leaveEvent(self, event) -> None:
@@ -479,13 +531,17 @@ class ProjectInfoPanel(SimpleCardWidget):
             progress_header_layout = QHBoxLayout(progress_header)
             progress_header_layout.setContentsMargins(0, 0, 0, 0)
 
-            progress_label = CaptionLabel(Localizer.get().project_info_progress, progress_header)
+            progress_label = CaptionLabel(
+                Localizer.get().project_info_progress, progress_header
+            )
             progress_header_layout.addWidget(progress_label)
 
             percent = int(info["progress"] * 100)
             percent_label = QLabel(f"{percent}%", progress_header)
             color = "#ffffff" if isDarkTheme() else "#000000"
-            percent_label.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {color};")
+            percent_label.setStyleSheet(
+                f"font-size: 12px; font-weight: 600; color: {color};"
+            )
             percent_label.setAlignment(Qt.AlignmentFlag.AlignRight)
             progress_header_layout.addWidget(percent_label)
 
@@ -506,7 +562,9 @@ class ProjectInfoPanel(SimpleCardWidget):
             total = info.get("total_items", 0)
 
             left_stat = CaptionLabel(
-                Localizer.get().project_info_translated.replace("{COUNT}", f"{translated:,}"),
+                Localizer.get().project_info_translated.replace(
+                    "{COUNT}", f"{translated:,}"
+                ),
                 stats_frame,
             )
             stats_layout.addWidget(left_stat)
@@ -546,7 +604,9 @@ class EmptyRecentProjectState(QWidget):
 
         self.label = BodyLabel(Localizer.get().project_recent_empty, self)
 
-        self.v_layout.addWidget(self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.v_layout.addWidget(
+            self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter
+        )
         self.v_layout.addWidget(self.label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.update_style()
@@ -586,6 +646,12 @@ class SupportedFormatItem(CardWidget):
 class ProjectPage(Base, ScrollArea):
     """工程页（新建/打开工程）"""
 
+    @staticmethod
+    def get_project_file_filter() -> str:
+        """返回 .lg 工程文件的文件选择器筛选文本。"""
+
+        return Localizer.get().project_file_filter_lg
+
     def __init__(self, object_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName(object_name)
@@ -596,6 +662,7 @@ class ProjectPage(Base, ScrollArea):
         self.selected_source_path: str | None = None  # 新建工程时选中的源文件/目录
         self.selected_lg_path: str | None = None  # 打开工程时选中的 .lg 文件
         self.create_thread: CreateProjectThread | None = None  # 创建工程线程
+        self.open_thread: OpenProjectThread | None = None  # 打开工程线程
 
         # 主容器
         self.container = QWidget()
@@ -617,7 +684,9 @@ class ProjectPage(Base, ScrollArea):
         # 订阅事件
         self.subscribe(Base.Event.PROJECT_LOADED, self.on_project_loaded)
 
-    def create_header(self, title_text: str, subtitle_text: str, color: str) -> QHBoxLayout:
+    def create_header(
+        self, title_text: str, subtitle_text: str, color: str
+    ) -> QHBoxLayout:
         """创建带有装饰条的统一标题头"""
         layout = QHBoxLayout()
         layout.setSpacing(12)
@@ -689,7 +758,9 @@ class ProjectPage(Base, ScrollArea):
         features_layout.setSpacing(12)
 
         # 标题
-        features_title = StrongBodyLabel(Localizer.get().project_fmt_title, features_frame)
+        features_title = StrongBodyLabel(
+            Localizer.get().project_fmt_title, features_frame
+        )
         features_layout.addWidget(features_title)
 
         # 内容网格
@@ -822,7 +893,9 @@ class ProjectPage(Base, ScrollArea):
         btn_layout = QVBoxLayout(btn_container)
         btn_layout.setContentsMargins(0, 24, 0, 0)
 
-        self.open_btn = PrimaryPushButton(Localizer.get().project_open_project_title, card)
+        self.open_btn = PrimaryPushButton(
+            Localizer.get().project_open_project_title, card
+        )
         self.open_btn.setFixedSize(160, 36)
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self.on_open_project)
@@ -917,16 +990,22 @@ class ProjectPage(Base, ScrollArea):
 
     def select_source_folder(self):
         """选择源目录"""
-        path = QFileDialog.getExistingDirectory(self, Localizer.get().project_select_source_dir_title)
+        path = QFileDialog.getExistingDirectory(
+            self, Localizer.get().project_select_source_dir_title
+        )
         if path:
             self.on_source_dropped(path)
 
     def select_source_file(self):
         """选择源文件"""
-        extensions = [f"*{ext}" for ext in sorted(DataManager.get().get_supported_extensions())]
+        extensions = [
+            f"*{ext}" for ext in sorted(DataManager.get().get_supported_extensions())
+        ]
         filter_str = f"{Localizer.get().supported_files} ({' '.join(extensions)})"
 
-        path, _ = QFileDialog.getOpenFileName(self, Localizer.get().select_file, "", filter_str)
+        path, _ = QFileDialog.getOpenFileName(
+            self, Localizer.get().select_file, "", filter_str
+        )
         if path:
             self.on_source_dropped(path)
 
@@ -977,37 +1056,13 @@ class ProjectPage(Base, ScrollArea):
             self,
             Localizer.get().project_select_project_title,
             "",
-            Localizer.get().project_file_filter_lg,
+            self.get_project_file_filter(),
         )
         if path:
             self.on_lg_dropped(path)
 
-    def on_lg_dropped(self, path: str) -> None:
-        """lg 文件拖入"""
-        if not path.endswith(".lg"):
-            self.emit(
-                Base.Event.TOAST,
-                {
-                    "type": Base.ToastType.WARNING,
-                    "message": Localizer.get().project_toast_invalid_lg,
-                },
-            )
-            return
-
-        if not os.path.exists(path):
-            # 文件不存在，提示移除
-            box = MessageBox(
-                Localizer.get().project_msg_file_not_found_title,
-                Localizer.get().project_msg_file_not_found_content.replace("{PATH}", path),
-                self,
-            )
-            if box.exec():
-                config = Config().load()
-                config.remove_recent_project(path)
-                config.save()
-                self.refresh_recent_list()
-            return
-
+    def update_open_project_selection(self, path: str) -> None:
+        """更新打开工程卡片的选中态与预览信息。"""
         self.selected_lg_path = path
         self.open_btn.setEnabled(True)
 
@@ -1027,20 +1082,57 @@ class ProjectPage(Base, ScrollArea):
 
         # 显示选中的文件
         file_name = Path(path).name
-        self.selected_file_display = SelectedFileDisplay(file_name, True, self.open_project_card)
+        self.selected_file_display = SelectedFileDisplay(
+            file_name, True, self.open_project_card
+        )
         self.selected_file_display.clicked.connect(self.on_select_lg)
         self.selected_file_display.fileDropped.connect(self.on_lg_dropped)
         self.selected_file_display.clear_clicked.connect(self.reset_open_project_state)
-        self.open_project_card.layout().insertWidget(1, self.selected_file_display)  # 插入到 drop_zone 位置 (index 1 after header)
+        self.open_project_card.layout().insertWidget(
+            1, self.selected_file_display
+        )  # 插入到 drop_zone 位置 (index 1 after header)
 
-        # 显示项目详情
+        info = DataManager.get().get_project_preview(path)
+        self.project_info_panel = ProjectInfoPanel(self.open_project_card)
+        self.project_info_panel.set_info(info)
+        self.open_project_card.layout().insertWidget(
+            2, self.project_info_panel
+        )  # 插入到 selected_file_display 下方
+
+    def on_lg_dropped(self, path: str) -> None:
+        """lg 文件拖入"""
+        if not path.endswith(".lg"):
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().project_toast_invalid_lg,
+                },
+            )
+            return
+
+        if not os.path.exists(path):
+            # 文件不存在，提示移除
+            box = MessageBox(
+                Localizer.get().project_msg_file_not_found_title,
+                Localizer.get().project_msg_file_not_found_content.replace(
+                    "{PATH}", path
+                ),
+                self,
+            )
+            if box.exec():
+                config = Config().load()
+                config.remove_recent_project(path)
+                config.save()
+                self.refresh_recent_list()
+            return
+
         try:
-            info = DataManager.get().get_project_preview(path)
-            self.project_info_panel = ProjectInfoPanel(self.open_project_card)
-            self.project_info_panel.set_info(info)
-            self.open_project_card.layout().insertWidget(2, self.project_info_panel)  # 插入到 selected_file_display 下方
+            self.update_open_project_selection(path)
         except Exception as e:
-            message = Localizer.get().project_error_read_preview.replace("{ERROR}", str(e))
+            message = Localizer.get().project_error_read_preview.replace(
+                "{ERROR}", str(e)
+            )
             LogManager.get().error(f"Failed to read project preview - {path}", e)
             self.emit(
                 Base.Event.TOAST,
@@ -1070,7 +1162,7 @@ class ProjectPage(Base, ScrollArea):
                 self,
                 Localizer.get().project_save_project_title,
                 default_name,
-                Localizer.get().project_file_filter_lg,
+                self.get_project_file_filter(),
             )
         else:
             # 自动生成文件名
@@ -1093,7 +1185,9 @@ class ProjectPage(Base, ScrollArea):
                 # 如果固定目录无效，回退到手动选择或提示
                 if not target_dir or not os.path.exists(target_dir):
                     # 尝试请求用户选择
-                    target_dir = QFileDialog.getExistingDirectory(self, Localizer.get().select_folder, "")
+                    target_dir = QFileDialog.getExistingDirectory(
+                        self, Localizer.get().select_folder, ""
+                    )
                     if target_dir:
                         config.project_fixed_path = target_dir
                         config.save()
@@ -1126,7 +1220,9 @@ class ProjectPage(Base, ScrollArea):
 
         # 启动后台线程
         self.create_thread = CreateProjectThread(self.selected_source_path, path)
-        self.create_thread.finished_signal.connect(lambda success, result: self.on_create_finished(path, success, result))
+        self.create_thread.finished_signal.connect(
+            lambda success, result: self.on_create_finished(path, success, result)
+        )
         # 确保线程完全退出后再由 Qt 回收对象，避免 QThread: Destroyed while thread is still running
         self.create_thread.finished.connect(self.create_thread.deleteLater)
         self.create_thread.start()
@@ -1158,7 +1254,9 @@ class ProjectPage(Base, ScrollArea):
                     Base.Event.TOAST,
                     {
                         "type": Base.ToastType.ERROR,
-                        "message": Localizer.get().project_toast_load_fail.replace("{ERROR}", str(e)),
+                        "message": Localizer.get().project_toast_load_fail.replace(
+                            "{ERROR}", str(e)
+                        ),
                     },
                 )
                 self.new_btn.setEnabled(True)  # 恢复按钮
@@ -1168,7 +1266,9 @@ class ProjectPage(Base, ScrollArea):
                 Base.Event.TOAST,
                 {
                     "type": Base.ToastType.ERROR,
-                    "message": Localizer.get().project_toast_create_fail.replace("{ERROR}", str(result)),
+                    "message": Localizer.get().project_toast_create_fail.replace(
+                        "{ERROR}", str(result)
+                    ),
                 },
             )
             self.new_btn.setEnabled(True)  # 恢复按钮
@@ -1178,36 +1278,52 @@ class ProjectPage(Base, ScrollArea):
         if not self.selected_lg_path:
             return
 
-        try:
-            # 显示进度 Toast
-            self.emit(
-                Base.Event.PROGRESS_TOAST,
-                {
-                    "sub_event": Base.SubEvent.RUN,
-                    "message": Localizer.get().project_progress_loading,
-                    "indeterminate": True,
-                },
+        selected_lg_path = self.selected_lg_path
+        self.open_btn.setEnabled(False)
+        self.emit(
+            Base.Event.PROGRESS_TOAST,
+            {
+                "sub_event": Base.SubEvent.RUN,
+                "message": Localizer.get().project_progress_loading,
+                "indeterminate": True,
+            },
+        )
+
+        self.open_thread = OpenProjectThread(selected_lg_path)
+        self.open_thread.finished_signal.connect(
+            lambda success, result: self.on_open_finished(
+                selected_lg_path,
+                success,
+                result,
             )
+        )
+        # 确保线程完全退出后再由 Qt 回收对象，避免 QThread: Destroyed while thread is still running
+        self.open_thread.finished.connect(self.open_thread.deleteLater)
+        self.open_thread.start()
 
-            # 加载工程
-            DataManager.get().load_project(self.selected_lg_path)
+    def on_open_finished(self, path: str, success: bool, result: object) -> None:
+        """旧工程打开完成回调。"""
+        self.emit(
+            Base.Event.PROGRESS_TOAST,
+            {"sub_event": Base.SubEvent.DONE},
+        )
+        self.open_thread = None
 
-            # 更新最近打开列表
+        if success:
+            # 打开成功后再更新最近项目，避免失败路径污染最近列表。
             config = Config().load()
-            name = Path(self.selected_lg_path).stem
-            config.add_recent_project(self.selected_lg_path, name)
+            name = Path(path).stem
+            config.add_recent_project(path, name)
             config.save()
-        except Exception as e:
-            LogManager.get().error(f"Failed to load project: {self.selected_lg_path}", e)
-            self.emit(
-                Base.Event.TOAST,
-                {
-                    "type": Base.ToastType.ERROR,
-                    "message": Localizer.get().project_toast_load_fail.replace("{ERROR}", str(e)),
-                },
-            )
-        finally:
-            self.emit(
-                Base.Event.PROGRESS_TOAST,
-                {"sub_event": Base.SubEvent.DONE},
-            )
+            return
+
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.ERROR,
+                "message": Localizer.get().project_toast_load_fail.replace(
+                    "{ERROR}", str(result)
+                ),
+            },
+        )
+        self.open_btn.setEnabled(True)

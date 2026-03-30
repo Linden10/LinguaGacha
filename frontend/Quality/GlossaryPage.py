@@ -3,15 +3,12 @@ from typing import Any
 from PySide6.QtCore import QPoint
 from PySide6.QtCore import QSize
 from PySide6.QtCore import Qt
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QAbstractItemView
 from PySide6.QtWidgets import QHeaderView
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import Action
 from qfluentwidgets import FluentWindow
 from qfluentwidgets import RoundMenu
-from qfluentwidgets import TransparentPushButton
 from qfluentwidgets import qconfig
 
 from base.Base import Base
@@ -37,7 +34,6 @@ ICON_CASE_SENSITIVE: BaseIcon = BaseIcon.CASE_SENSITIVE  # 规则图标：大小
 ICON_MENU_DELETE: BaseIcon = BaseIcon.TRASH_2  # 右键菜单：删除条目
 ICON_MENU_ENABLE: BaseIcon = BaseIcon.CHECK  # 右键菜单：启用
 ICON_MENU_DISABLE: BaseIcon = BaseIcon.X  # 右键菜单：禁用
-ICON_KG_LINK: BaseIcon = BaseIcon.BOT  # 命令栏：跳转 KeywordGacha
 
 
 class GlossaryPage(QualityRulePageBase):
@@ -76,7 +72,6 @@ class GlossaryPage(QualityRulePageBase):
         self.add_standard_command_bar_actions(
             config,
             window,
-            extra_right_actions=(self.add_command_bar_action_kg,),
         )
 
         qconfig.themeChanged.connect(self.on_theme_changed)
@@ -335,14 +330,3 @@ class GlossaryPage(QualityRulePageBase):
 
     def set_case_sensitive_for_selection(self, enabled: bool) -> None:
         self.set_case_sensitive_for_rows(self.get_selected_entry_rows(), enabled)
-
-    def add_command_bar_action_kg(self) -> None:
-        def connect() -> None:
-            QDesktopServices.openUrl(QUrl("https://github.com/neavo/KeywordGacha"))
-
-        push_button = TransparentPushButton(
-            ICON_KG_LINK,
-            Localizer.get().glossary_page_kg,
-        )
-        push_button.clicked.connect(connect)
-        self.command_bar_card.add_widget(push_button)

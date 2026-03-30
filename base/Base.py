@@ -5,6 +5,10 @@ from base.EventManager import EventManager
 
 
 class Base:
+    APP_NAME: str = "LinguaGacha"
+    REPO_URL: str = "https://github.com/neavo/LinguaGacha"
+    USER_AGENT_NAME: str = "LinguaGacha"
+
     # 翻译/分析事件速查表（优先看这里）：
     # +-------------------------------+-------------------------------+------------------------------------------------+-----------------------------------------------------------+
     # | 事件名                        | sub_event                     | 语义                                           | 常见字段                                                  |
@@ -20,6 +24,7 @@ class Base:
     # | ANALYSIS_RESET_ALL            | REQUEST / RUN / DONE / ERROR | 重置全部分析进度                               | 无                                                        |
     # | ANALYSIS_RESET_FAILED         | REQUEST / RUN / DONE / ERROR | 仅重置失败的分析进度                           | 无                                                        |
     # | ANALYSIS_IMPORT_GLOSSARY      | REQUEST / RUN / DONE / ERROR | 把候选术语池导入正式术语表                     | imported_count, message                                   |
+    # | ANALYSIS_EXPORT_GLOSSARY      | RUN / DONE / ERROR           | 导出最终术语表文件（CLI 专用收尾）            | json_path, xlsx_path, exported_count, imported_count      |
     # +-------------------------------+-------------------------------+------------------------------------------------+-----------------------------------------------------------+
 
     # 事件
@@ -46,6 +51,9 @@ class Base:
         ANALYSIS_RESET_FAILED = "ANALYSIS_RESET_FAILED"  # 分析 - 仅重置失败项
         ANALYSIS_IMPORT_GLOSSARY = (
             "ANALYSIS_IMPORT_GLOSSARY"  # 分析 - 导入候选术语池到正式术语表
+        )
+        ANALYSIS_EXPORT_GLOSSARY = (
+            "ANALYSIS_EXPORT_GLOSSARY"  # 分析 - 导出最终术语表文件
         )
         APP_UPDATE_CHECK = "APP_UPDATE_CHECK"  # 更新 - 检查生命周期事件
         APP_UPDATE_DOWNLOAD = "APP_UPDATE_DOWNLOAD"  # 更新 - 下载生命周期事件
