@@ -43,6 +43,10 @@ class Engine:
 
         self.translation = Translation()
 
+        from module.Engine.Review.ReviewEngine import ReviewEngine
+
+        self.review = ReviewEngine()
+
     def get_status(self) -> Base.TaskStatus:
         with self.lock:
             return self.status

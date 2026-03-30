@@ -1,0 +1,8 @@
+Then use JSONLINE to output review results, without extra explanation or clarification:
+```jsonline
+{"<INDEX>":"<VERDICT>","corrected":"<Corrected Translation or empty if PASS>","reason":"<Brief reason>"}
+```
+Where VERDICT is one of: PASS, FIX, FAIL
+- PASS: Translation is accurate, no changes needed. Leave "corrected" empty.
+- FIX: Translation has issues but can be corrected. Provide the corrected translation in "corrected".
+- FAIL: Translation has critical issues. Provide the corrected translation in "corrected" and explain in "reason".

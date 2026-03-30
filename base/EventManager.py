@@ -42,6 +42,7 @@ class EventManager(QObject):
         {
             "TRANSLATION_PROGRESS",
             "ANALYSIS_PROGRESS",
+            "REVIEW_PROGRESS",
         }
     )
 
@@ -177,8 +178,8 @@ class EventManager(QObject):
     def connect_owner_destroyed_cleanup(self, owner: QObject, owner_id: int) -> None:
         """把 QObject 销毁后的订阅清理集中到一处，避免弱引用分支把细节写散。"""
         owner.destroyed.connect(
-            lambda obj=None, owner_id=owner_id: (
-                self.cleanup_owner_subscriptions(owner_id)
+            lambda obj=None, owner_id=owner_id: self.cleanup_owner_subscriptions(
+                owner_id
             )
         )
 

@@ -43,6 +43,7 @@ from frontend.Quality.CustomPromptPage import CustomPromptPage
 from frontend.Quality.GlossaryPage import GlossaryPage
 from frontend.Quality.TextPreservePage import TextPreservePage
 from frontend.Quality.TextReplacementPage import TextReplacementPage
+from frontend.Review.ReviewPage import ReviewPage
 from frontend.Setting.BasicSettingsPage import BasicSettingsPage
 from frontend.Setting.ExpertSettingsPage import ExpertSettingsPage
 from frontend.Translation.TranslationPage import TranslationPage
@@ -59,6 +60,7 @@ ICON_NAV_MODEL: BaseIcon = BaseIcon.SLACK  # 侧边栏：模型管理
 ICON_NAV_TRANSLATION: BaseIcon = BaseIcon.SCAN_TEXT  # 侧边栏：翻译任务
 ICON_NAV_ANALYSIS: BaseIcon = BaseIcon.RADAR  # 侧边栏：术语分析任务
 ICON_NAV_PROOFREADING: BaseIcon = BaseIcon.GRID_2X2_CHECK  # 侧边栏：校对任务
+ICON_NAV_REVIEW: BaseIcon = BaseIcon.CLIPBOARD_CHECK  # 侧边栏：AI 审校
 ICON_NAV_WORKBENCH: BaseIcon = BaseIcon.LAYOUT_DASHBOARD  # 侧边栏：工作台
 
 ICON_NAV_BASIC_SETTINGS: BaseIcon = BaseIcon.SLIDERS_HORIZONTAL  # 侧边栏：基础设置
@@ -228,6 +230,7 @@ class AppFluentWindow(Base, FluentWindow):
             "translation_page",
             "analysis_page",
             "proofreading_page",
+            "review_page",
             "workbench_page",
             "glossary_page",
             "text_preserve_page",
@@ -657,6 +660,15 @@ class AppFluentWindow(Base, FluentWindow):
             self.proofreading_page,
             ICON_NAV_PROOFREADING.qicon(),
             Localizer.get().app_proofreading_page,
+            NavigationItemPosition.SCROLL,
+        )
+
+        # AI 审校
+        self.review_page = ReviewPage("review_page", self)
+        self.addSubInterface(
+            self.review_page,
+            ICON_NAV_REVIEW.qicon(),
+            Localizer.get().app_review_page,
             NavigationItemPosition.SCROLL,
         )
 
