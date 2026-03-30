@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "目标分支/标签/提交"
-        required: true
-        default: "main"
+        description: "目标分支/标签/提交（留空则使用当前分支）"
+        required: false
+        default: ""
       create_release:
         description: "自动创建发布草稿"
         required: true
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
@@ -74,7 +74,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
@@ -145,7 +145,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
@@ -206,7 +206,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
