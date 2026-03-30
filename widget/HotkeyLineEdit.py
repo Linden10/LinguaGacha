@@ -69,15 +69,11 @@ class HotkeyLineEdit(CustomLineEdit):
         if modifiers & Qt.KeyboardModifier.ShiftModifier:
             parts.append("Shift")
 
-        # 解析主键名
-        key_name = SPECIAL_KEY_NAMES.get(key, "")
+        # 解析主键名：优先匹配特殊键表，否则取事件文本
+        key_name = SPECIAL_KEY_NAMES.get(key) or event.text().strip().upper()
         if not key_name:
-            text = event.text().strip()
-            if text:
-                key_name = text.upper()
-            else:
-                # 无法识别的键，忽略
-                return
+            # 无法识别的键，忽略
+            return
 
         parts.append(key_name)
         hotkey_text = "+".join(parts)

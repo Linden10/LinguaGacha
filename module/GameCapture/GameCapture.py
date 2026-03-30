@@ -45,13 +45,9 @@ class GameCapture:
     @staticmethod
     def is_available() -> bool:
         """检查 ffmpeg 是否可用。"""
-        from module.Config import Config
-
-        config = Config().load()
-        custom_path = config.ffmpeg_path.strip()
-        if custom_path:
-            return os.path.isfile(custom_path)
-        return shutil.which("ffmpeg") is not None
+        path = GameCapture.resolve_ffmpeg_path()
+        # shutil.which 处理 PATH 查找；os.path.isfile 处理用户配置的绝对路径
+        return shutil.which(path) is not None or os.path.isfile(path)
 
     def capture_screenshot(self, window_title: str) -> str:
         """捕获指定窗口的截图，返回 PNG 的 base64 编码字符串。

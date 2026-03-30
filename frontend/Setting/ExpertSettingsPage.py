@@ -433,10 +433,9 @@ class ExpertSettingsPage(Base, QWidget):
                 "ffmpeg (*)",
             )
             if isinstance(path, str) and path:
+                # setText 不会触发 editingFinished 信号，需手动调用保存
                 ffmpeg_edit.setText(path)
-                current_config = Config().load()
-                current_config.ffmpeg_path = path
-                current_config.save()
+                on_editing_finished()
 
         browse_button.clicked.connect(on_browse)
 

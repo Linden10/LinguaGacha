@@ -397,7 +397,9 @@ class ReviewPage(Base, QWidget):
         self.capture_hotkey_edit.setPlaceholderText(
             Localizer.get().review_page_capture_hotkey_placeholder
         )
-        self.capture_hotkey_edit.hotkey_changed.connect(self.on_capture_hotkey_captured)
+        self.capture_hotkey_edit.hotkey_changed.connect(
+            lambda _: self.on_capture_hotkey_changed()
+        )
         hotkey_card.add_right_widget(self.capture_hotkey_edit)
         parent.addWidget(hotkey_card)
         self.capture_hotkey_card = hotkey_card
@@ -727,15 +729,9 @@ class ReviewPage(Base, QWidget):
         config.save()
 
     def on_capture_hotkey_changed(self) -> None:
-        """热键变更（文本编辑完成时触发）。"""
+        """热键变更（文本编辑完成或键盘捕获时统一触发）。"""
         config = Config().load()
         config.review_capture_hotkey = self.capture_hotkey_edit.text().strip()
-        config.save()
-
-    def on_capture_hotkey_captured(self, hotkey: str) -> None:
-        """热键通过键盘捕获变更。"""
-        config = Config().load()
-        config.review_capture_hotkey = hotkey
         config.save()
 
     def on_capture_auto_advance_changed(self, checked: bool) -> None:
