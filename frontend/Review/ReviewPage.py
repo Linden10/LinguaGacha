@@ -1028,9 +1028,9 @@ class ReviewPage(Base, QWidget):
         """切换历史面板的可见性。"""
         visible = not self.history_panel.isVisible()
         self.history_panel.setVisible(visible)
-        # 切换箭头方向
+        # 切换箭头方向：展开时指左（可收起），收起时指右（可展开）
         if visible:
-            self.history_toggle_button.setIcon(BaseIcon.CHEVRON_RIGHT)
+            self.history_toggle_button.setIcon(BaseIcon.CHEVRON_LEFT)
         else:
             self.history_toggle_button.setIcon(BaseIcon.CHEVRON_RIGHT)
 
