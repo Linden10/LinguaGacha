@@ -258,8 +258,11 @@ class ReviewEngine(Base):
                     if future is not None:
                         try:
                             result = future.result(timeout=0)
-                        except Exception:
+                        except Exception as e:
                             # 预取失败，回退到同步执行
+                            LogManager.get().debug(
+                                "Prefetch failed, falling back to sync execution", e
+                            )
                             result = None
 
                     if result is None:

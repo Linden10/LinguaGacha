@@ -22,6 +22,7 @@ from qfluentwidgets import TransparentToolButton
 
 from base.Base import Base
 from base.BaseIcon import BaseIcon
+from base.LogManager import LogManager
 from frontend.Translation.DashboardCard import DashboardCard
 from model.Item import Item
 from module.Config import Config
@@ -1087,8 +1088,8 @@ class ReviewPage(Base, QWidget):
                         item.dst = entry.original_dst
                         dm.save_item(item)
                         break
-        except Exception:
-            pass  # 项目可能已卸载，静默忽略
+        except Exception as e:
+            LogManager.get().warning("Failed to undo review fix", e)
 
         self.refresh_history_list()
         self.update_history_buttons()
@@ -1120,8 +1121,8 @@ class ReviewPage(Base, QWidget):
                             item.dst = entry.corrected
                             dm.save_item(item)
                             break
-            except Exception:
-                pass  # 项目可能已卸载，静默忽略
+            except Exception as e:
+                LogManager.get().warning("Failed to redo review fix", e)
 
         self.refresh_history_list()
         self.update_history_buttons()
@@ -1154,8 +1155,8 @@ class ReviewPage(Base, QWidget):
                     if item is not None:
                         dm.save_item(item)
                         count += 1
-        except Exception:
-            pass  # 项目可能已卸载，静默忽略
+        except Exception as e:
+            LogManager.get().warning("Failed to save review history", e)
 
         self.emit(
             Base.Event.TOAST,
