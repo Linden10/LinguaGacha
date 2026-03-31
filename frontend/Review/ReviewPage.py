@@ -78,6 +78,7 @@ class ReviewPage(Base, QWidget):
         self.window_ref = window
         self.is_reviewing: bool = False
         self.awaiting_approval: bool = False
+        self.awaiting_result_line: str = ""
 
         # 起始行索引（0 表示从头开始）
         self.starting_line_index: int = 0
@@ -435,7 +436,10 @@ class ReviewPage(Base, QWidget):
         self.file_select_button.setVisible(index == SCOPE_FILE)
 
     def on_select_starting_line_clicked(self) -> None:
-        """打开起始行选择对话框，展示可审校条目列表供用户选择。"""
+        """打开起始行选择对话框，展示可审校条目列表供用户选择。
+
+        当审校范围为"选定文件"时，仅展示已选文件中的条目。
+        """
         dm = DataManager.get()
         if not dm.is_loaded():
             self.emit(
@@ -447,7 +451,17 @@ class ReviewPage(Base, QWidget):
             )
             return
 
-        items = self.filter_translated_items(dm.get_all_items())
+        all_items = dm.get_all_items()
+
+        # 当范围为"选定文件"时，仅展示已选文件中的条目
+        scope_index = self.scope_combo.currentIndex()
+        if scope_index == SCOPE_FILE and self.selected_files:
+            selected_set = set(self.selected_files)
+            all_items = [
+                item for item in all_items if item.get_file_path() in selected_set
+            ]
+
+        items = self.filter_translated_items(all_items)
         if not items:
             TaskRunnerLifecycle.emit_no_items_warning(self)
             return
@@ -461,7 +475,8 @@ class ReviewPage(Base, QWidget):
         dialog.cancelButton.setText(Localizer.get().cancel)
 
         line_list = ListWidget(dialog)
-        line_list.setMinimumHeight(400)
+        line_list.setMinimumHeight(500)
+        line_list.setMinimumWidth(600)
         for i, item in enumerate(items):
             # 截断过长文本以保持列表可读
             max_len = LINE_PREVIEW_MAX_LENGTH
@@ -691,29 +706,23 @@ class ReviewPage(Base, QWidget):
         )
         self.skip_action.setEnabled(False)
 
-        self.deny_action = self.command_bar.add_action(
-            Action(
-                ICON_ACTION_DENY,
-                Localizer.get().review_page_deny,
-                self.command_bar,
-                triggered=self.on_deny,
-            )
-        )
-        self.deny_action.setEnabled(False)
-
-        self.retry_action = self.command_bar.add_action(
-            Action(
-                ICON_ACTION_RETRY,
-                Localizer.get().review_page_retry,
-                self.command_bar,
-                triggered=self.on_retry,
-            )
-        )
-        self.retry_action.setEnabled(False)
-
         self.command_bar.add_stretch(1)
 
-        # Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
+        # Deny / Retry / Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
+        self.deny_button = PushButton(
+            ICON_ACTION_DENY, Localizer.get().review_page_deny
+        )
+        self.deny_button.setEnabled(False)
+        self.deny_button.clicked.connect(self.on_deny)
+        self.command_bar.add_widget(self.deny_button)
+
+        self.retry_button = PushButton(
+            ICON_ACTION_RETRY, Localizer.get().review_page_retry
+        )
+        self.retry_button.setEnabled(False)
+        self.retry_button.clicked.connect(self.on_retry)
+        self.command_bar.add_widget(self.retry_button)
+
         self.ask_ai_button = PushButton(
             ICON_ACTION_ASK, Localizer.get().review_page_ask_ai
         )
@@ -933,12 +942,17 @@ class ReviewPage(Base, QWidget):
         if not text:
             return
 
-        # 将问题追加到输出日志
+        # 将问题追加到输出日志，保留待批结果在末尾
         loc = Localizer.get()
         q_line = loc.review_page_inquiry_question.replace("{TEXT}", text)
         self.output_lines.append("")
         self.output_lines.append(q_line)
-        self.output_text.setPlainText("\n".join(self.output_lines))
+
+        if self.awaiting_approval and self.awaiting_result_line:
+            output = "\n".join(self.output_lines + ["", self.awaiting_result_line])
+        else:
+            output = "\n".join(self.output_lines)
+        self.output_text.setPlainText(output)
         scrollbar = self.output_text.verticalScrollBar()
         if scrollbar:
             scrollbar.setValue(scrollbar.maximum())
@@ -1244,6 +1258,7 @@ class ReviewPage(Base, QWidget):
             if awaiting:
                 # 待批结果不追加到永久日志，仅在末尾展示
                 self.awaiting_approval = True
+                self.awaiting_result_line = line
                 self.update_buttons()
                 # 空行分隔已完成日志和待批项，使其视觉上更突出
                 output = "\n".join(self.output_lines + ["", line])
@@ -1251,10 +1266,10 @@ class ReviewPage(Base, QWidget):
                 self.output_lines.append(line)
                 output = "\n".join(self.output_lines)
 
-                # 已批准的 FIX 结果加入历史面板，支持 Undo/Redo
+                # 已批准的 FIX/PASS 结果加入历史面板
                 approved = data.get("approved", False)
                 verdict = result_data.get("verdict", "")
-                if approved and verdict == "FIX":
+                if approved and verdict in ("FIX", "PASS"):
                     entry = ReviewHistoryEntry(
                         item_id=result_data.get("item_id", 0),
                         src=result_data.get("src", ""),
@@ -1327,13 +1342,18 @@ class ReviewPage(Base, QWidget):
         return "\n".join(parts)
 
     def handle_inquiry_response(self, inquiry_response: dict) -> None:
-        """将 Ask AI 的回答追加到输出区域。"""
+        """将 Ask AI 的回答追加到输出区域，保留待批结果在末尾。"""
         loc = Localizer.get()
         answer = inquiry_response.get("answer", "")
         a_line = loc.review_page_inquiry_answer.replace("{TEXT}", answer)
         self.output_lines.append(a_line)
         self.output_lines.append("")
-        self.output_text.setPlainText("\n".join(self.output_lines))
+
+        if self.awaiting_approval and self.awaiting_result_line:
+            output = "\n".join(self.output_lines + ["", self.awaiting_result_line])
+        else:
+            output = "\n".join(self.output_lines)
+        self.output_text.setPlainText(output)
         scrollbar = self.output_text.verticalScrollBar()
         if scrollbar:
             scrollbar.setValue(scrollbar.maximum())
@@ -1411,8 +1431,8 @@ class ReviewPage(Base, QWidget):
         can_approve = is_reviewing and not is_stopping and self.awaiting_approval
         self.approve_action.setEnabled(can_approve)
         self.skip_action.setEnabled(can_approve)
-        self.deny_action.setEnabled(can_approve)
-        self.retry_action.setEnabled(can_approve)
+        self.deny_button.setEnabled(can_approve)
+        self.retry_button.setEnabled(can_approve)
         self.ask_ai_button.setEnabled(is_reviewing and not is_stopping)
 
         # 审校过程中禁用设置

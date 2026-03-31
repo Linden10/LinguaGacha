@@ -42,7 +42,6 @@ class EventManager(QObject):
         {
             "TRANSLATION_PROGRESS",
             "ANALYSIS_PROGRESS",
-            "REVIEW_PROGRESS",
         }
     )
 

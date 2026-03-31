@@ -64,6 +64,9 @@ class ReviewEngine(Base):
         self.current_item: Item | None = None
         self.current_precedings: list[Item] = []
 
+        # Ask AI 对话历史（同一待批条目内的多轮对话）
+        self.inquiry_history: list[dict[str, str]] = []
+
         # 用户发起的即时暂停标记：下一条结果强制走手动审批
         self.pause_next: bool = False
 
@@ -525,6 +528,10 @@ class ReviewEngine(Base):
         如果用户选择 inquiry（Ask AI），则处理查询并重新进入等待循环，
         直到收到真正的审批决定（approve/skip/deny/retry）。
         """
+        # 每个新的待批条目清空对话历史
+        with self.lock:
+            self.inquiry_history = []
+
         # 发送带有 awaiting_approval 标记的进度事件，UI 据此展示待批状态
         self.emit(
             Base.Event.REVIEW_PROGRESS,
@@ -597,17 +604,19 @@ class ReviewEngine(Base):
 
         在引擎后台线程中执行，不阻塞 UI。
         通过 REVIEW_PROGRESS 事件将回答发回 UI。
+        同一待批条目内的多轮对话共享历史记录。
         """
         with self.lock:
             config = self.current_config
             model = self.current_model
             precedings = list(self.current_precedings)
+            history = list(self.inquiry_history)
 
         if config is None or model is None:
             return
 
         try:
-            # 构建查询消息：系统提示 + 上下文 + 用户问题
+            # 构建查询消息：系统提示 + 上下文 + 历史对话 + 用户问题
             context_parts: list[str] = []
             if precedings:
                 preceding_lines = [f"  {p.src} → {p.dst}" for p in precedings]
@@ -616,19 +625,32 @@ class ReviewEngine(Base):
                 )
             context_parts.append(f"Source text: {item.src}")
             context_parts.append(f"Current translation: {item.dst}")
-            context_parts.append(f"\nUser question: {question}")
 
-            messages = [
+            messages: list[dict[str, str]] = [
                 {
                     "role": "system",
                     "content": (
                         "You are a translation review assistant. "
                         "Answer the user's question about the current translation. "
-                        "Be concise and helpful."
+                        "Be concise and helpful.\n\n"
+                        "The translation data uses two fields:\n"
+                        "- src: the original source text\n"
+                        "- dst: the translated text\n\n"
+                        "When you suggest a corrected translation, clearly present it "
+                        "in the format:\n"
+                        "  src: <original text>\n"
+                        "  dst: <corrected translation>\n"
+                        "so the user can easily identify and apply the change."
                     ),
                 },
                 {"role": "user", "content": "\n\n".join(context_parts)},
             ]
+
+            # 追加此条目内的历史对话
+            messages.extend(history)
+
+            # 追加当前问题
+            messages.append({"role": "user", "content": question})
 
             request_result = TaskRequestExecutor.execute(
                 config=config,
@@ -642,6 +664,11 @@ class ReviewEngine(Base):
                 answer = f"Error: {request_result.exception}"
             else:
                 answer = request_result.cleaned_response_result or ""
+
+            # 将本轮问答追加到历史
+            with self.lock:
+                self.inquiry_history.append({"role": "user", "content": question})
+                self.inquiry_history.append({"role": "assistant", "content": answer})
 
             # 将回答发送回 UI
             self.emit(
