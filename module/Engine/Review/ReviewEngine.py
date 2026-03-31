@@ -14,6 +14,8 @@ from module.Engine.Review.ReviewModels import ReviewProgressSnapshot
 from module.Engine.Review.ReviewModels import ReviewResult
 from module.Engine.Review.ReviewModels import ReviewVerdict
 from module.Engine.Review.ReviewTask import ReviewTask
+from module.Engine.TaskRequestExecutor import TaskRequestExecutor
+from module.Engine.TaskRequester import TaskRequester
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.GameCapture.GameCapture import GameCapture
 from module.Localizer.Localizer import Localizer
@@ -37,6 +39,7 @@ class ReviewEngine(Base):
     DECISION_SKIP: str = "skip"
     DECISION_DENY: str = "deny"
     DECISION_RETRY: str = "retry"
+    DECISION_INQUIRY: str = "inquiry"
 
     def __init__(self) -> None:
         super().__init__()
@@ -52,6 +55,13 @@ class ReviewEngine(Base):
         # 手动审批同步机制：引擎线程阻塞等待用户决定
         self.approval_event: threading.Event = threading.Event()
         self.user_decision: str = ""
+        self.inquiry_text: str = ""
+
+        # 当前审校上下文（用于 Ask AI 查询）
+        self.current_config: Config | None = None
+        self.current_model: dict[str, Any] | None = None
+        self.current_item: Item | None = None
+        self.current_precedings: list[Item] = []
 
         # 用户发起的即时暂停标记：下一条结果强制走手动审批
         self.pause_next: bool = False
@@ -84,10 +94,12 @@ class ReviewEngine(Base):
         self.approval_event.set()
 
     def on_user_decision(self, event: Base.Event, data: dict) -> None:
-        """响应用户审批决定（approve/deny/retry），唤醒引擎线程。"""
+        """响应用户审批决定（approve/deny/retry/inquiry），唤醒引擎线程。"""
         decision = data.get("decision", "")
         with self.lock:
             self.user_decision = decision
+            if decision == self.DECISION_INQUIRY:
+                self.inquiry_text = data.get("text", "")
         self.approval_event.set()
 
     def on_pause_next(self, event: Base.Event, data: dict) -> None:
@@ -229,6 +241,13 @@ class ReviewEngine(Base):
                     screenshot_b64=screenshot_b64,
                 )
 
+                # 存储当前审校上下文（用于 Ask AI 查询）
+                with self.lock:
+                    self.current_config = config
+                    self.current_model = model
+                    self.current_item = item
+                    self.current_precedings = precedings
+
                 # 根据审批模式决定是否等待用户操作
                 decision = self.resolve_approval(
                     approval_mode,
@@ -368,7 +387,11 @@ class ReviewEngine(Base):
         total: int,
         current: int,
     ) -> str:
-        """向 UI 发送待批事件，然后阻塞等待用户通过 REVIEW_USER_DECISION 回复。"""
+        """向 UI 发送待批事件，然后阻塞等待用户通过 REVIEW_USER_DECISION 回复。
+
+        如果用户选择 inquiry（Ask AI），则处理查询并重新进入等待循环，
+        直到收到真正的审批决定（approve/skip/deny/retry）。
+        """
         # 发送带有 awaiting_approval 标记的进度事件，UI 据此展示待批状态
         self.emit(
             Base.Event.REVIEW_PROGRESS,
@@ -387,30 +410,38 @@ class ReviewEngine(Base):
             },
         )
 
-        # 阻塞直到用户决定或停止请求
-        with self.lock:
-            self.user_decision = ""
-            self.approval_event.clear()
+        while True:
+            # 阻塞直到用户决定或停止请求
+            with self.lock:
+                self.user_decision = ""
+                self.inquiry_text = ""
+                self.approval_event.clear()
 
-        while not self.should_stop():
-            if self.approval_event.wait(timeout=0.5):
-                break
+            while not self.should_stop():
+                if self.approval_event.wait(timeout=0.5):
+                    break
 
-        with self.lock:
-            decision = self.user_decision
+            with self.lock:
+                decision = self.user_decision
+                inquiry_text = self.inquiry_text
 
-        if self.should_stop():
+            if self.should_stop():
+                return self.DECISION_DENY
+
+            # inquiry 决定：处理查询后重新等待真正的审批
+            if decision == self.DECISION_INQUIRY and inquiry_text:
+                self.handle_inquiry(inquiry_text, item)
+                continue
+
+            if decision in (
+                self.DECISION_APPROVE,
+                self.DECISION_SKIP,
+                self.DECISION_DENY,
+                self.DECISION_RETRY,
+            ):
+                return decision
+
             return self.DECISION_DENY
-
-        if decision in (
-            self.DECISION_APPROVE,
-            self.DECISION_SKIP,
-            self.DECISION_DENY,
-            self.DECISION_RETRY,
-        ):
-            return decision
-
-        return self.DECISION_DENY
 
     def apply_fix_if_needed(self, result: ReviewResult, item: Item) -> None:
         """若结果为 FIX 且有修正文本，将修正写回数据层。
@@ -427,6 +458,70 @@ class ReviewEngine(Base):
             LogManager.get().warning(
                 f"Failed to apply review fix for item {result.item_id}", e
             )
+
+    def handle_inquiry(self, question: str, item: Item) -> None:
+        """处理 Ask AI 查询：将用户问题连同当前审校上下文发送给 AI，返回回答。
+
+        在引擎后台线程中执行，不阻塞 UI。
+        通过 REVIEW_PROGRESS 事件将回答发回 UI。
+        """
+        with self.lock:
+            config = self.current_config
+            model = self.current_model
+            precedings = list(self.current_precedings)
+
+        if config is None or model is None:
+            return
+
+        try:
+            # 构建查询消息：系统提示 + 上下文 + 用户问题
+            context_parts: list[str] = []
+            if precedings:
+                preceding_lines = [f"  {p.src} → {p.dst}" for p in precedings]
+                context_parts.append(
+                    "Preceding context:\n" + "\n".join(preceding_lines)
+                )
+            context_parts.append(f"Source text: {item.src}")
+            context_parts.append(f"Current translation: {item.dst}")
+            context_parts.append(f"\nUser question: {question}")
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a translation review assistant. "
+                        "Answer the user's question about the current translation. "
+                        "Be concise and helpful."
+                    ),
+                },
+                {"role": "user", "content": "\n\n".join(context_parts)},
+            ]
+
+            request_result = TaskRequestExecutor.execute(
+                config=config,
+                model=model,
+                messages=messages,
+                requester_factory=TaskRequester,
+                stop_checker=self.should_stop,
+            )
+
+            if request_result.exception is not None:
+                answer = f"Error: {request_result.exception}"
+            else:
+                answer = request_result.cleaned_response_result or ""
+
+            # 将回答发送回 UI
+            self.emit(
+                Base.Event.REVIEW_PROGRESS,
+                {
+                    "inquiry_response": {
+                        "question": question,
+                        "answer": answer,
+                    },
+                },
+            )
+        except Exception as e:
+            LogManager.get().warning("Failed to handle review inquiry", e)
 
     def review_single_item_with_retry(
         self,

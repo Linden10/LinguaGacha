@@ -1,4 +1,6 @@
+from PySide6.QtCore import QPoint
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QHBoxLayout
 from PySide6.QtWidgets import QListWidgetItem
 from PySide6.QtWidgets import QVBoxLayout
@@ -7,11 +9,15 @@ from qfluentwidgets import Action
 from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
 from qfluentwidgets import ListWidget
+from qfluentwidgets import MenuAnimationType
 from qfluentwidgets import MessageBox
 from qfluentwidgets import PlainTextEdit
 from qfluentwidgets import ProgressRing
 from qfluentwidgets import PushButton
+from qfluentwidgets import RoundMenu
 from qfluentwidgets import SwitchButton
+from qfluentwidgets import ToolTipFilter
+from qfluentwidgets import ToolTipPosition
 
 from base.Base import Base
 from base.BaseIcon import BaseIcon
@@ -23,12 +29,12 @@ from module.Engine.Engine import Engine
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
-from widget.CustomLineEdit import CustomLineEdit
 from widget.HotkeyLineEdit import HotkeyLineEdit
 from widget.SettingCard import SettingCard
 
 # ==================== 图标常量 ====================
 ICON_ACTION_START: BaseIcon = BaseIcon.PLAY
+ICON_ACTION_CONTINUE: BaseIcon = BaseIcon.ROTATE_CW
 ICON_ACTION_STOP: BaseIcon = BaseIcon.CIRCLE_STOP
 ICON_ACTION_PAUSE: BaseIcon = BaseIcon.CIRCLE_PAUSE
 ICON_ACTION_APPROVE: BaseIcon = BaseIcon.CHECK
@@ -36,6 +42,10 @@ ICON_ACTION_SKIP: BaseIcon = BaseIcon.SKIP_FORWARD
 ICON_ACTION_DENY: BaseIcon = BaseIcon.CROSS
 ICON_ACTION_RETRY: BaseIcon = BaseIcon.REFRESH_CW
 ICON_ACTION_ASK: BaseIcon = BaseIcon.MESSAGE_CIRCLE_QUESTION
+ICON_ACTION_SEND: BaseIcon = BaseIcon.SEND_HORIZONTAL
+ICON_ACTION_RESET: BaseIcon = BaseIcon.RECYCLE
+ICON_ACTION_RESET_FAILED: BaseIcon = BaseIcon.PAINTBRUSH
+ICON_ACTION_RESET_ALL: BaseIcon = BaseIcon.BRUSH_CLEANING
 ICON_NAV_REVIEW: BaseIcon = BaseIcon.CLIPBOARD_CHECK
 
 # 进度环最大值
@@ -63,6 +73,10 @@ class ReviewPage(Base, QWidget):
 
         # 起始行索引（0 表示从头开始）
         self.starting_line_index: int = 0
+
+        # 审校会话跟踪（用于 Continue / Reset）
+        self.review_items: list[Item] = []
+        self.reviewed_count: int = 0
 
         # 输出日志：累积每行审校结果的格式化文本
         self.output_lines: list[str] = []
@@ -166,7 +180,7 @@ class ReviewPage(Base, QWidget):
     # ==================== 输出窗口 ====================
 
     def add_widget_output(self, parent: QVBoxLayout) -> None:
-        """添加 AI 输出展示区域和询问输入框。"""
+        """添加 AI 输出展示区域和询问输入框（含发送按钮）。"""
         # 输出文本区域（只读）
         self.output_text = PlainTextEdit(self)
         self.output_text.setReadOnly(True)
@@ -174,13 +188,43 @@ class ReviewPage(Base, QWidget):
         self.output_text.setMinimumHeight(200)
         parent.addWidget(self.output_text, 1)
 
-        # 询问输入框
-        self.inquiry_input = CustomLineEdit(self)
+        # 询问输入区域：输入框 + 发送按钮（水平布局）
+        self.inquiry_container = QWidget(self)
+        inquiry_hbox = QHBoxLayout(self.inquiry_container)
+        inquiry_hbox.setContentsMargins(0, 0, 0, 0)
+        inquiry_hbox.setSpacing(8)
+
+        self.inquiry_input = PlainTextEdit(self.inquiry_container)
         self.inquiry_input.setPlaceholderText(
             Localizer.get().review_page_inquiry_placeholder
         )
-        self.inquiry_input.setVisible(False)
-        parent.addWidget(self.inquiry_input)
+        self.inquiry_input.setMaximumHeight(60)
+        self.inquiry_input.installEventFilter(self)
+        inquiry_hbox.addWidget(self.inquiry_input, 1)
+
+        self.inquiry_send_button = PushButton(
+            ICON_ACTION_SEND,
+            Localizer.get().review_page_inquiry_send,
+            self.inquiry_container,
+        )
+        self.inquiry_send_button.clicked.connect(self.on_inquiry_submit)
+        inquiry_hbox.addWidget(self.inquiry_send_button)
+
+        self.inquiry_container.setVisible(False)
+        parent.addWidget(self.inquiry_container)
+
+    def eventFilter(self, obj: object, event: object) -> bool:
+        """拦截询问输入框的 Enter 键：Enter 发送，Shift+Enter 换行。"""
+        if obj is self.inquiry_input and isinstance(event, QKeyEvent):
+            if event.type() == QKeyEvent.Type.KeyPress:
+                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                        # Shift+Enter：插入换行（默认行为）
+                        return False
+                    # Enter：发送
+                    self.on_inquiry_submit()
+                    return True
+        return super().eventFilter(obj, event)
 
     # ==================== 审校范围 ====================
 
@@ -500,11 +544,11 @@ class ReviewPage(Base, QWidget):
     # ==================== 底部工具栏 ====================
 
     def add_widget_foot(self, parent: QVBoxLayout, config: Config) -> None:
-        """添加底部命令栏：开始/停止 + 审批操作按钮 + Ask AI 独立按钮。"""
+        """添加底部命令栏：开始/停止 + 重置 + 审批操作按钮 + Ask AI 独立按钮。"""
         self.command_bar = CommandBarCard()
         self.command_bar.set_minimum_width(640)
 
-        # 开始审校按钮
+        # 开始/继续审校按钮
         self.start_action = self.command_bar.add_action(
             Action(
                 ICON_ACTION_START,
@@ -535,6 +579,23 @@ class ReviewPage(Base, QWidget):
             )
         )
         self.pause_action.setEnabled(False)
+
+        self.command_bar.add_separator()
+
+        # 重置按钮（弹出菜单：重置失败行 / 重置全部）
+        self.reset_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_RESET,
+                Localizer.get().review_page_reset,
+                self.command_bar,
+                triggered=self.on_reset_clicked,
+            )
+        )
+        self.reset_action.installEventFilter(
+            ToolTipFilter(self.reset_action, 300, ToolTipPosition.TOP)
+        )
+        self.reset_action.setToolTip(Localizer.get().review_page_reset_tooltip)
+        self.reset_action.setEnabled(False)
 
         self.command_bar.add_separator()
 
@@ -594,7 +655,23 @@ class ReviewPage(Base, QWidget):
     # ==================== 审校启动 ====================
 
     def on_start_review(self) -> None:
-        """根据当前范围选择启动审校。"""
+        """根据当前范围选择启动审校。支持 Continue 模式恢复未完成的会话。"""
+        # 如果有未完成的会话，继续从上次断点
+        if self.has_review_progress():
+            remaining = self.review_items[self.reviewed_count :]
+            if not remaining:
+                TaskRunnerLifecycle.emit_no_items_warning(self)
+                return
+
+            self.emit(
+                Base.Event.REVIEW_TASK,
+                {
+                    "sub_event": Base.SubEvent.REQUEST,
+                    "items": remaining,
+                },
+            )
+            return
+
         dm = DataManager.get()
         if not dm.is_loaded():
             self.emit(
@@ -665,9 +742,11 @@ class ReviewPage(Base, QWidget):
         if not message_box.exec():
             return
 
-        # 清空输出并开始
+        # 清空输出并开始新会话
         self.output_lines = []
         self.output_text.clear()
+        self.review_items = review_items
+        self.reviewed_count = 0
 
         self.emit(
             Base.Event.REVIEW_TASK,
@@ -675,6 +754,14 @@ class ReviewPage(Base, QWidget):
                 "sub_event": Base.SubEvent.REQUEST,
                 "items": review_items,
             },
+        )
+
+    def has_review_progress(self) -> bool:
+        """当前是否有未完成的审校会话。"""
+        return (
+            len(self.review_items) > 0
+            and self.reviewed_count > 0
+            and self.reviewed_count < len(self.review_items)
         )
 
     @staticmethod
