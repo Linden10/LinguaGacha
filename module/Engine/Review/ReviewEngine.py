@@ -261,7 +261,8 @@ class ReviewEngine(Base):
                         except Exception as e:
                             # 预取失败，回退到同步执行
                             LogManager.get().debug(
-                                "Prefetch failed, falling back to sync execution", e
+                                f"Prefetch failed for item {i}, falling back to sync execution",
+                                e,
                             )
                             result = None
 

@@ -1089,7 +1089,9 @@ class ReviewPage(Base, QWidget):
                         dm.save_item(item)
                         break
         except Exception as e:
-            LogManager.get().warning("Failed to undo review fix", e)
+            LogManager.get().warning(
+                f"Failed to undo review fix for item {entry.item_id}", e
+            )
 
         self.refresh_history_list()
         self.update_history_buttons()
@@ -1122,7 +1124,9 @@ class ReviewPage(Base, QWidget):
                             dm.save_item(item)
                             break
             except Exception as e:
-                LogManager.get().warning("Failed to redo review fix", e)
+                LogManager.get().warning(
+                    f"Failed to redo review fix for item {entry.item_id}", e
+                )
 
         self.refresh_history_list()
         self.update_history_buttons()
