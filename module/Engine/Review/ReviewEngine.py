@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 import time
 from typing import Any
@@ -65,6 +66,11 @@ class ReviewEngine(Base):
 
         # 用户发起的即时暂停标记：下一条结果强制走手动审批
         self.pause_next: bool = False
+
+        # 预取状态：在等待用户审批时预先请求下一条的 AI 审校结果
+        self.prefetch_future: concurrent.futures.Future[ReviewResult] | None = None
+        self.prefetch_index: int = -1
+        self.prefetch_executor: concurrent.futures.ThreadPoolExecutor | None = None
 
         # 注册事件
         self.subscribe(Base.Event.REVIEW_TASK, self.review_event)
@@ -141,6 +147,8 @@ class ReviewEngine(Base):
             self.results = []
             self.progress = ReviewProgressSnapshot(total_line=len(items))
             self.pause_next = False
+            self.prefetch_future = None
+            self.prefetch_index = -1
 
         # 启动后台任务
         TaskRunnerLifecycle.start_background_run(
@@ -152,7 +160,11 @@ class ReviewEngine(Base):
         )
 
     def run_review(self, items: list[Item]) -> None:
-        """后台线程：执行审校任务主循环。"""
+        """后台线程：执行审校任务主循环。
+
+        支持并发预取：根据模型的 Concurrent Task Limit 设置，在等待用户审批时
+        预先向 AI 请求后续条目的审校结果，减少用户的等待时间。
+        """
         final_status = "FAILED"
         capturer: GameCapture | None = None
 
@@ -181,6 +193,9 @@ class ReviewEngine(Base):
 
             approval_mode = config.review_approval_mode
 
+            # 从模型配置中取并发上限（与翻译页共用同一设置）
+            max_workers, _, _ = TaskRunnerLifecycle.build_task_limits(model)
+
             # 初始化游戏窗口捕获（仅截图模式在逐行循环中自动触发）
             capture_enabled = (
                 config.review_capture_enable
@@ -190,6 +205,9 @@ class ReviewEngine(Base):
             if capture_enabled:
                 capturer = GameCapture()
 
+            # 预取结果缓存：index → ReviewResult
+            prefetch_cache: dict[int, concurrent.futures.Future[ReviewResult]] = {}
+
             # 逐条审校（每条携带上文）
             total = len(items)
             reviewed = 0
@@ -198,126 +216,161 @@ class ReviewEngine(Base):
             fail_count = 0
             error_count = 0
 
-            # 使用 while 而非 for：支持重试时不推进索引（continue 回到同一条目）
-            i = 0
-            while i < total:
-                if self.should_stop():
-                    final_status = "STOPPED"
-                    break
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, max_workers),
+                thread_name_prefix="review-prefetch",
+            ) as executor:
+                # 使用 while 而非 for：支持重试时不推进索引
+                i = 0
+                while i < total:
+                    if self.should_stop():
+                        final_status = "STOPPED"
+                        break
 
-                item = items[i]
+                    item = items[i]
 
-                # 收集上文
-                preceding_count = config.review_preceding_lines
-                start_idx = max(0, i - preceding_count)
-                precedings = items[start_idx:i]
+                    # 收集上文
+                    preceding_count = config.review_preceding_lines
+                    start_idx = max(0, i - preceding_count)
+                    precedings = items[start_idx:i]
 
-                # 自动推进游戏并捕获截图
-                screenshot_b64 = ""
-                if capture_enabled and capturer is not None:
-                    if (
-                        config.review_capture_auto_advance
-                        and config.review_capture_hotkey
-                    ):
-                        capturer.send_hotkey(
-                            config.review_capture_window,
-                            config.review_capture_hotkey,
+                    # 自动推进游戏并捕获截图
+                    screenshot_b64 = ""
+                    if capture_enabled and capturer is not None:
+                        if (
+                            config.review_capture_auto_advance
+                            and config.review_capture_hotkey
+                        ):
+                            capturer.send_hotkey(
+                                config.review_capture_window,
+                                config.review_capture_hotkey,
+                            )
+                            time.sleep(self.HOTKEY_SETTLE_DELAY)
+
+                        if config.review_capture_mode == Config.CaptureMode.IMAGE:
+                            screenshot_b64 = capturer.capture_screenshot(
+                                config.review_capture_window
+                            )
+
+                    # 尝试使用预取结果；未命中则同步执行
+                    result: ReviewResult | None = None
+                    future = prefetch_cache.pop(i, None)
+                    if future is not None:
+                        try:
+                            result = future.result(timeout=0)
+                        except Exception:
+                            # 预取失败，回退到同步执行
+                            result = None
+
+                    if result is None:
+                        result = self.review_single_item_with_retry(
+                            config=config,
+                            model=model,
+                            item=item,
+                            precedings=precedings,
+                            quality_snapshot=quality_snapshot,
+                            max_retries=max_retries,
+                            screenshot_b64=screenshot_b64,
                         )
-                        time.sleep(self.HOTKEY_SETTLE_DELAY)
 
-                    if config.review_capture_mode == Config.CaptureMode.IMAGE:
-                        screenshot_b64 = capturer.capture_screenshot(
-                            config.review_capture_window
+                    # 存储当前审校上下文（用于 Ask AI 查询）
+                    with self.lock:
+                        self.current_config = config
+                        self.current_model = model
+                        self.current_item = item
+                        self.current_precedings = precedings
+
+                    # 根据审批模式决定是否需要等待用户操作
+                    needs_wait = self.check_needs_manual_approval(approval_mode, result)
+
+                    # 在等待用户审批前，提交后续条目的预取请求
+                    if needs_wait:
+                        self.submit_prefetch_batch(
+                            executor=executor,
+                            cache=prefetch_cache,
+                            items=items,
+                            start_index=i + 1,
+                            max_prefetch=max(1, max_workers - 1),
+                            config=config,
+                            model=model,
+                            quality_snapshot=quality_snapshot,
+                            max_retries=max_retries,
                         )
 
-                # 执行审校（支持重试）
-                result = self.review_single_item_with_retry(
-                    config=config,
-                    model=model,
-                    item=item,
-                    precedings=precedings,
-                    quality_snapshot=quality_snapshot,
-                    max_retries=max_retries,
-                    screenshot_b64=screenshot_b64,
-                )
+                    decision = self.resolve_approval(
+                        approval_mode,
+                        result,
+                        item,
+                        total,
+                        reviewed + 1,
+                    )
 
-                # 存储当前审校上下文（用于 Ask AI 查询）
-                with self.lock:
-                    self.current_config = config
-                    self.current_model = model
-                    self.current_item = item
-                    self.current_precedings = precedings
+                    # 用户/自动决定为"重试"时不推进索引，重新审校同一条
+                    if decision == self.DECISION_RETRY:
+                        # 清除该条及后续预取缓存（重试可能改变上下文）
+                        self.cancel_prefetch_cache(prefetch_cache)
+                        continue
 
-                # 根据审批模式决定是否等待用户操作
-                decision = self.resolve_approval(
-                    approval_mode,
-                    result,
-                    item,
-                    total,
-                    reviewed + 1,
-                )
+                    # 若被批准且有修正，则写回数据层；跳过时不应用修正
+                    if decision == self.DECISION_APPROVE:
+                        self.apply_fix_if_needed(result, item)
 
-                # 用户/自动决定为"重试"时不推进索引，重新审校同一条
-                if decision == self.DECISION_RETRY:
-                    continue
+                    # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
+                    skipped = decision == self.DECISION_SKIP
 
-                # 若被批准且有修正，则写回数据层；跳过时不应用修正
-                if decision == self.DECISION_APPROVE:
-                    self.apply_fix_if_needed(result, item)
+                    # 汇总结果
+                    with self.lock:
+                        self.results.append(result)
 
-                # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
-                skipped = decision == self.DECISION_SKIP
+                    reviewed += 1
+                    if skipped or result.verdict == ReviewVerdict.PASS:
+                        pass_count += 1
+                    elif result.verdict == ReviewVerdict.FIX:
+                        fix_count += 1
+                    elif result.verdict == ReviewVerdict.FAIL:
+                        fail_count += 1
+                    else:
+                        error_count += 1
 
-                # 汇总结果
-                with self.lock:
-                    self.results.append(result)
+                    # 更新进度（不含待批信息，表示该行已完成）
+                    snapshot = ReviewProgressSnapshot(
+                        total_line=total,
+                        reviewed_line=reviewed,
+                        pass_line=pass_count,
+                        fix_line=fix_count,
+                        fail_line=fail_count,
+                        error_line=error_count,
+                    )
+                    with self.lock:
+                        self.progress = snapshot
 
-                reviewed += 1
-                if skipped or result.verdict == ReviewVerdict.PASS:
-                    pass_count += 1
-                elif result.verdict == ReviewVerdict.FIX:
-                    fix_count += 1
-                elif result.verdict == ReviewVerdict.FAIL:
-                    fail_count += 1
-                else:
-                    error_count += 1
-
-                # 更新进度（不含待批信息，表示该行已完成）
-                snapshot = ReviewProgressSnapshot(
-                    total_line=total,
-                    reviewed_line=reviewed,
-                    pass_line=pass_count,
-                    fix_line=fix_count,
-                    fail_line=fail_count,
-                    error_line=error_count,
-                )
-                with self.lock:
-                    self.progress = snapshot
-
-                self.emit(
-                    Base.Event.REVIEW_PROGRESS,
-                    {
-                        "total_line": total,
-                        "reviewed_line": reviewed,
-                        "pass_line": pass_count,
-                        "fix_line": fix_count,
-                        "fail_line": fail_count,
-                        "error_line": error_count,
-                        "result": {
-                            "item_id": result.item_id,
-                            "verdict": str(result.verdict),
-                            "corrected": result.corrected,
-                            "reason": result.reason,
-                            "original_dst": result.original_dst,
-                            "src": item.src,
+                    self.emit(
+                        Base.Event.REVIEW_PROGRESS,
+                        {
+                            "total_line": total,
+                            "reviewed_line": reviewed,
+                            "pass_line": pass_count,
+                            "fix_line": fix_count,
+                            "fail_line": fail_count,
+                            "error_line": error_count,
+                            "result": {
+                                "item_id": result.item_id,
+                                "verdict": str(result.verdict),
+                                "corrected": result.corrected,
+                                "reason": result.reason,
+                                "original_dst": result.original_dst,
+                                "src": item.src,
+                            },
+                            "approved": decision == self.DECISION_APPROVE,
                         },
-                        "approved": decision == self.DECISION_APPROVE,
-                    },
-                )
+                    )
 
-                i += 1
-            else:
-                final_status = "SUCCESS"
+                    i += 1
+                else:
+                    final_status = "SUCCESS"
+
+                # 清理残留预取
+                self.cancel_prefetch_cache(prefetch_cache)
 
         except Exception as e:
             LogManager.get().error("Review task failed", e)
@@ -330,6 +383,82 @@ class ReviewEngine(Base):
                 task_event=Base.Event.REVIEW_TASK,
                 final_status=final_status,
             )
+
+    # ==================== 并发预取 ====================
+
+    def submit_prefetch_batch(
+        self,
+        *,
+        executor: concurrent.futures.ThreadPoolExecutor,
+        cache: dict[int, concurrent.futures.Future[ReviewResult]],
+        items: list[Item],
+        start_index: int,
+        max_prefetch: int,
+        config: Config,
+        model: dict[str, Any],
+        quality_snapshot: QualityRuleSnapshot | None,
+        max_retries: int,
+    ) -> None:
+        """提交一批预取任务到线程池。
+
+        只预取尚未在缓存中且索引在范围内的条目。
+        预取不包含截图（截图需要实时捕获游戏画面，无法提前获取）。
+        """
+        total = len(items)
+        submitted = 0
+        for idx in range(start_index, total):
+            if submitted >= max_prefetch:
+                break
+            if idx in cache:
+                continue
+
+            prefetch_item = items[idx]
+            preceding_count = config.review_preceding_lines
+            pstart = max(0, idx - preceding_count)
+            prefetch_precedings = items[pstart:idx]
+
+            future = executor.submit(
+                self.review_single_item_with_retry,
+                config=config,
+                model=model,
+                item=prefetch_item,
+                precedings=prefetch_precedings,
+                quality_snapshot=quality_snapshot,
+                max_retries=max_retries,
+                screenshot_b64="",
+            )
+            cache[idx] = future
+            submitted += 1
+
+    @staticmethod
+    def cancel_prefetch_cache(
+        cache: dict[int, concurrent.futures.Future[ReviewResult]],
+    ) -> None:
+        """取消并清空预取缓存中所有未完成的 Future。"""
+        for future in cache.values():
+            future.cancel()
+        cache.clear()
+
+    def check_needs_manual_approval(
+        self,
+        approval_mode: str,
+        result: ReviewResult,
+    ) -> bool:
+        """判断当前结果是否需要用户手动审批（不消耗 pause_next 标记）。"""
+        if result.verdict in (ReviewVerdict.PASS, ReviewVerdict.ERROR):
+            return False
+
+        with self.lock:
+            if self.pause_next:
+                return True
+
+        if approval_mode == Config.ReviewApprovalMode.MANUAL:
+            return True
+        if approval_mode == Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL:
+            if result.verdict == ReviewVerdict.FAIL:
+                return True
+
+        return False
 
     # ==================== 审批决策 ====================
 
