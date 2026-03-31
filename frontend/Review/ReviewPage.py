@@ -11,7 +11,6 @@ from qfluentwidgets import MessageBox
 from qfluentwidgets import PlainTextEdit
 from qfluentwidgets import ProgressRing
 from qfluentwidgets import PushButton
-from qfluentwidgets import SpinBox
 from qfluentwidgets import SwitchButton
 
 from base.Base import Base
@@ -44,7 +43,6 @@ RING_MAX_VALUE: int = 10000
 SCOPE_ALL: int = 0
 SCOPE_FILE: int = 1
 SCOPE_FAILED: int = 2
-MAX_STARTING_LINE: int = 999999
 
 
 class ReviewPage(Base, QWidget):
@@ -61,6 +59,9 @@ class ReviewPage(Base, QWidget):
         self.window_ref = window
         self.is_reviewing: bool = False
         self.awaiting_approval: bool = False
+
+        # 起始行索引（0 表示从头开始）
+        self.starting_line_index: int = 0
 
         # 输出日志：累积每行审校结果的格式化文本
         self.output_lines: list[str] = []
@@ -220,11 +221,13 @@ class ReviewPage(Base, QWidget):
             description=Localizer.get().review_page_starting_line_desc,
             parent=self,
         )
-        self.starting_line_spin = SpinBox(starting_line_card)
-        self.starting_line_spin.setRange(1, MAX_STARTING_LINE)
-        self.starting_line_spin.setValue(1)
-        self.starting_line_spin.setMinimumWidth(120)
-        starting_line_card.add_right_widget(self.starting_line_spin)
+        self.starting_line_button = PushButton(
+            Localizer.get().review_page_starting_line_from_beginning,
+            starting_line_card,
+        )
+        self.starting_line_button.setMinimumWidth(160)
+        self.starting_line_button.clicked.connect(self.on_select_starting_line_clicked)
+        starting_line_card.add_right_widget(self.starting_line_button)
         parent.addWidget(starting_line_card)
 
         # 已选文件列表（内部状态）
@@ -314,6 +317,72 @@ class ReviewPage(Base, QWidget):
     def on_scope_changed(self, index: int) -> None:
         """审校范围变更：控制文件选择按钮可见性。"""
         self.file_select_button.setVisible(index == SCOPE_FILE)
+
+    def on_select_starting_line_clicked(self) -> None:
+        """打开起始行选择对话框，展示可审校条目列表供用户选择。"""
+        dm = DataManager.get()
+        if not dm.is_loaded():
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().alert_project_not_loaded,
+                },
+            )
+            return
+
+        items = self.filter_translated_items(dm.get_all_items())
+        if not items:
+            TaskRunnerLifecycle.emit_no_items_warning(self)
+            return
+
+        dialog = MessageBox(
+            Localizer.get().review_page_starting_line,
+            "",
+            self.window_ref,
+        )
+        dialog.yesButton.setText(Localizer.get().confirm)
+        dialog.cancelButton.setText(Localizer.get().cancel)
+
+        line_list = ListWidget(dialog)
+        line_list.setMinimumHeight(400)
+        for i, item in enumerate(items):
+            # 截断过长文本以保持列表可读
+            src = (item.src[:60] + " …") if len(item.src) > 60 else item.src
+            dst = (item.dst[:60] + " …") if len(item.dst) > 60 else item.dst
+            label = f"{i + 1}.  {src}  →  {dst}"
+            line_list.addItem(label)
+
+        # 选中当前起始行
+        if self.starting_line_index < line_list.count():
+            line_list.setCurrentRow(self.starting_line_index)
+        else:
+            line_list.setCurrentRow(0)
+
+        dialog.textLayout.addWidget(line_list)
+
+        if not dialog.exec():
+            return
+
+        row = line_list.currentRow()
+        if row < 0:
+            return
+
+        self.starting_line_index = row
+        self.update_starting_line_button_text()
+
+    def update_starting_line_button_text(self) -> None:
+        """根据当前选择更新起始行按钮文案。"""
+        if self.starting_line_index <= 0:
+            self.starting_line_button.setText(
+                Localizer.get().review_page_starting_line_from_beginning
+            )
+        else:
+            self.starting_line_button.setText(
+                Localizer.get().review_page_starting_line_selected.replace(
+                    "{LINE}", str(self.starting_line_index + 1)
+                )
+            )
 
     # ==================== 游戏窗口捕获区域 ====================
 
@@ -429,7 +498,7 @@ class ReviewPage(Base, QWidget):
     # ==================== 底部工具栏 ====================
 
     def add_widget_foot(self, parent: QVBoxLayout, config: Config) -> None:
-        """添加底部命令栏：开始/停止 + 审批操作按钮。"""
+        """添加底部命令栏：开始/停止 + 审批操作按钮 + Ask AI 独立按钮。"""
         self.command_bar = CommandBarCard()
         self.command_bar.set_minimum_width(640)
 
@@ -508,17 +577,16 @@ class ReviewPage(Base, QWidget):
         )
         self.retry_action.setEnabled(False)
 
-        self.ask_action = self.command_bar.add_action(
-            Action(
-                ICON_ACTION_ASK,
-                Localizer.get().review_page_ask_ai,
-                self.command_bar,
-                triggered=self.on_ask_ai,
-            )
-        )
-        self.ask_action.setEnabled(False)
-
         self.command_bar.add_stretch(1)
+
+        # Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
+        self.ask_ai_button = PushButton(
+            ICON_ACTION_ASK, Localizer.get().review_page_ask_ai
+        )
+        self.ask_ai_button.setEnabled(False)
+        self.ask_ai_button.clicked.connect(self.on_ask_ai)
+        self.command_bar.add_widget(self.ask_ai_button)
+
         parent.addWidget(self.command_bar)
 
     # ==================== 审校启动 ====================
@@ -576,10 +644,9 @@ class ReviewPage(Base, QWidget):
             TaskRunnerLifecycle.emit_no_items_warning(self)
             return
 
-        # 应用起始行偏移（跳过前 N-1 条）
-        starting_line = self.starting_line_spin.value()
-        if starting_line > 1:
-            review_items = review_items[starting_line - 1 :]
+        # 应用起始行偏移
+        if self.starting_line_index > 0:
+            review_items = review_items[self.starting_line_index :]
             if not review_items:
                 TaskRunnerLifecycle.emit_no_items_warning(self)
                 return
@@ -852,7 +919,9 @@ class ReviewPage(Base, QWidget):
         """工程卸载后清空文件列表和输出。"""
         self.all_file_paths = []
         self.selected_files = []
+        self.starting_line_index = 0
         self.update_file_button_text()
+        self.update_starting_line_button_text()
         self.output_text.clear()
         self.clear_stats()
 
@@ -886,12 +955,12 @@ class ReviewPage(Base, QWidget):
         self.skip_action.setEnabled(can_approve)
         self.deny_action.setEnabled(can_approve)
         self.retry_action.setEnabled(can_approve)
-        self.ask_action.setEnabled(is_reviewing and not is_stopping)
+        self.ask_ai_button.setEnabled(is_reviewing and not is_stopping)
 
         # 审校过程中禁用设置
         self.scope_combo.setEnabled(not is_busy)
         self.file_select_button.setEnabled(not is_busy)
-        self.starting_line_spin.setEnabled(not is_busy)
+        self.starting_line_button.setEnabled(not is_busy)
         self.capture_switch.setEnabled(not is_busy)
         self.capture_mode_combo.setEnabled(not is_busy)
         self.capture_window_edit.setEnabled(not is_busy)
