@@ -925,7 +925,12 @@ class ReviewPage(Base, QWidget):
         menu.exec(global_pos, ani=True, aniType=MenuAnimationType.PULL_UP)
 
     def do_reset_failed(self) -> None:
-        """重置失败行：将出错行移回审校队列（减少 reviewed_count 使 Continue 可重审）。"""
+        """重置失败行：回退 reviewed_count 使 Continue 可重新审校出错的行。
+
+        由于出错行可能散布在已审校区间中，这里将 reviewed_count 重置为 0，
+        让 Continue 从头重审全部条目。已通过/已修正的行会被引擎自动跳过或快速重审。
+        """
+        self.reviewed_count = 0
         self.error_card.set_value("0")
         self.emit(
             Base.Event.TOAST,
