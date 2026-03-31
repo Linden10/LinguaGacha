@@ -254,9 +254,7 @@ class ReviewEngine(Base):
                     self.results.append(result)
 
                 reviewed += 1
-                if skipped:
-                    pass_count += 1
-                elif result.verdict == ReviewVerdict.PASS:
+                if skipped or result.verdict == ReviewVerdict.PASS:
                     pass_count += 1
                 elif result.verdict == ReviewVerdict.FIX:
                     fix_count += 1

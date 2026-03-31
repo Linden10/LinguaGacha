@@ -44,6 +44,7 @@ RING_MAX_VALUE: int = 10000
 SCOPE_ALL: int = 0
 SCOPE_FILE: int = 1
 SCOPE_FAILED: int = 2
+MAX_STARTING_LINE: int = 999999
 
 
 class ReviewPage(Base, QWidget):
@@ -220,7 +221,7 @@ class ReviewPage(Base, QWidget):
             parent=self,
         )
         self.starting_line_spin = SpinBox(starting_line_card)
-        self.starting_line_spin.setRange(1, 999999)
+        self.starting_line_spin.setRange(1, MAX_STARTING_LINE)
         self.starting_line_spin.setValue(1)
         self.starting_line_spin.setMinimumWidth(120)
         starting_line_card.add_right_widget(self.starting_line_spin)
