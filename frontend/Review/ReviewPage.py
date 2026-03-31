@@ -29,6 +29,7 @@ from module.Engine.Engine import Engine
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
+from widget.CustomLineEdit import CustomLineEdit
 from widget.HotkeyLineEdit import HotkeyLineEdit
 from widget.SettingCard import SettingCard
 
@@ -850,11 +851,99 @@ class ReviewPage(Base, QWidget):
         self.emit(Base.Event.REVIEW_PAUSE_NEXT, {})
 
     def on_ask_ai(self) -> None:
-        """切换询问输入框的可见性，聚焦输入框。"""
-        visible = not self.inquiry_input.isVisible()
-        self.inquiry_input.setVisible(visible)
+        """切换询问输入区域的可见性，聚焦输入框。"""
+        visible = not self.inquiry_container.isVisible()
+        self.inquiry_container.setVisible(visible)
         if visible:
             self.inquiry_input.setFocus()
+
+    def on_inquiry_submit(self) -> None:
+        """发送询问内容给 AI 引擎。"""
+        text = self.inquiry_input.toPlainText().strip()
+        if not text:
+            return
+
+        # 将问题追加到输出日志
+        loc = Localizer.get()
+        q_line = loc.review_page_inquiry_question.replace("{TEXT}", text)
+        self.output_lines.append("")
+        self.output_lines.append(q_line)
+        self.output_text.setPlainText("\n".join(self.output_lines))
+        scrollbar = self.output_text.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setValue(scrollbar.maximum())
+
+        # 清空输入框
+        self.inquiry_input.clear()
+
+        # 发送 inquiry 决定给引擎
+        self.emit(
+            Base.Event.REVIEW_USER_DECISION,
+            {"decision": "inquiry", "text": text},
+        )
+
+    def on_reset_clicked(self) -> None:
+        """弹出重置菜单：重置失败行 / 重置全部。"""
+
+        def confirm_and_reset(message: str, reset_failed_only: bool) -> None:
+            message_box = MessageBox(
+                Localizer.get().alert,
+                message,
+                self.window_ref,
+            )
+            message_box.yesButton.setText(Localizer.get().confirm)
+            message_box.cancelButton.setText(Localizer.get().cancel)
+            if message_box.exec():
+                if reset_failed_only:
+                    self.do_reset_failed()
+                else:
+                    self.do_reset_all()
+
+        menu = RoundMenu("", self.reset_action)
+        menu.addAction(
+            Action(
+                ICON_ACTION_RESET_FAILED,
+                Localizer.get().review_page_reset_failed,
+                triggered=lambda: confirm_and_reset(
+                    Localizer.get().review_page_alert_reset_failed,
+                    reset_failed_only=True,
+                ),
+            )
+        )
+        menu.addSeparator()
+        menu.addAction(
+            Action(
+                ICON_ACTION_RESET_ALL,
+                Localizer.get().review_page_reset_all,
+                triggered=lambda: confirm_and_reset(
+                    Localizer.get().review_page_alert_reset_all,
+                    reset_failed_only=False,
+                ),
+            )
+        )
+        global_pos = self.reset_action.mapToGlobal(QPoint(0, 0))
+        menu.exec(global_pos, ani=True, aniType=MenuAnimationType.PULL_UP)
+
+    def do_reset_failed(self) -> None:
+        """重置失败行：将出错行移回审校队列（减少 reviewed_count 使 Continue 可重审）。"""
+        self.error_card.set_value("0")
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.SUCCESS,
+                "message": Localizer.get().review_page_reset_failed,
+            },
+        )
+        self.update_buttons()
+
+    def do_reset_all(self) -> None:
+        """重置全部：清空整个审校会话。"""
+        self.review_items = []
+        self.reviewed_count = 0
+        self.output_lines = []
+        self.output_text.clear()
+        self.clear_stats()
+        self.update_buttons()
 
     # ==================== 事件处理 ====================
 
@@ -887,6 +976,12 @@ class ReviewPage(Base, QWidget):
 
     def on_review_progress(self, event: Base.Event, data: dict) -> None:
         """响应审校进度更新，将每行审校结果追加到输出区域。"""
+        # 处理 Ask AI 查询响应（不含常规进度字段）
+        inquiry_response = data.get("inquiry_response")
+        if inquiry_response:
+            self.handle_inquiry_response(inquiry_response)
+            return
+
         total = data.get("total_line", 0)
         reviewed = data.get("reviewed_line", 0)
         pass_count = data.get("pass_line", 0)
@@ -895,6 +990,10 @@ class ReviewPage(Base, QWidget):
         error_count = data.get("error_line", 0)
         awaiting = data.get("awaiting_approval", False)
         result_data = data.get("result")
+
+        # 跟踪审校会话进度（用于 Continue 功能）
+        if not awaiting and reviewed > 0:
+            self.reviewed_count = len(self.review_items) - total + reviewed
 
         # 更新进度环
         percent = reviewed / max(1, total)
@@ -986,6 +1085,18 @@ class ReviewPage(Base, QWidget):
 
         return "\n".join(parts)
 
+    def handle_inquiry_response(self, inquiry_response: dict) -> None:
+        """将 Ask AI 的回答追加到输出区域。"""
+        loc = Localizer.get()
+        answer = inquiry_response.get("answer", "")
+        a_line = loc.review_page_inquiry_answer.replace("{TEXT}", answer)
+        self.output_lines.append(a_line)
+        self.output_lines.append("")
+        self.output_text.setPlainText("\n".join(self.output_lines))
+        scrollbar = self.output_text.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setValue(scrollbar.maximum())
+
     def on_review_stop(self, event: Base.Event, data: dict) -> None:
         """响应审校停止事件。"""
         sub_event = data.get("sub_event")
@@ -1005,10 +1116,13 @@ class ReviewPage(Base, QWidget):
         self.populate_file_list()
 
     def on_project_unloaded(self, event: Base.Event, data: dict) -> None:
-        """工程卸载后清空文件列表和输出。"""
+        """工程卸载后清空文件列表、审校会话和输出。"""
         self.all_file_paths = []
         self.selected_files = []
         self.starting_line_index = 0
+        self.review_items = []
+        self.reviewed_count = 0
+        self.output_lines = []
         self.update_file_button_text()
         self.update_starting_line_button_text()
         self.output_text.clear()
@@ -1032,6 +1146,17 @@ class ReviewPage(Base, QWidget):
 
         self.start_action.setEnabled(not is_busy)
         self.stop_action.setEnabled(is_reviewing and not is_stopping)
+
+        # 动态切换开始/继续按钮文案和图标
+        if self.has_review_progress():
+            self.start_action.setText(Localizer.get().review_page_continue)
+            self.start_action.setIcon(ICON_ACTION_CONTINUE)
+        else:
+            self.start_action.setText(Localizer.get().review_page_start)
+            self.start_action.setIcon(ICON_ACTION_START)
+
+        # 重置按钮：空闲且有会话数据时可用
+        self.reset_action.setEnabled(not is_busy and len(self.review_items) > 0)
 
         # 暂停按钮：审校进行中且未在等待审批时可用（让用户在自动模式下临时暂停）
         self.pause_action.setEnabled(
