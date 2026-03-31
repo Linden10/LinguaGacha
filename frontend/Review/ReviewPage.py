@@ -11,6 +11,7 @@ from qfluentwidgets import MessageBox
 from qfluentwidgets import PlainTextEdit
 from qfluentwidgets import ProgressRing
 from qfluentwidgets import PushButton
+from qfluentwidgets import SpinBox
 from qfluentwidgets import SwitchButton
 
 from base.Base import Base
@@ -32,6 +33,7 @@ ICON_ACTION_START: BaseIcon = BaseIcon.PLAY
 ICON_ACTION_STOP: BaseIcon = BaseIcon.CIRCLE_STOP
 ICON_ACTION_PAUSE: BaseIcon = BaseIcon.CIRCLE_PAUSE
 ICON_ACTION_APPROVE: BaseIcon = BaseIcon.CHECK
+ICON_ACTION_SKIP: BaseIcon = BaseIcon.SKIP_FORWARD
 ICON_ACTION_DENY: BaseIcon = BaseIcon.CROSS
 ICON_ACTION_RETRY: BaseIcon = BaseIcon.REFRESH_CW
 ICON_ACTION_ASK: BaseIcon = BaseIcon.MESSAGE_CIRCLE_QUESTION
@@ -166,6 +168,7 @@ class ReviewPage(Base, QWidget):
         self.output_text = PlainTextEdit(self)
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText(Localizer.get().review_page_desc)
+        self.output_text.setMinimumHeight(200)
         parent.addWidget(self.output_text, 1)
 
         # 询问输入框
@@ -209,6 +212,19 @@ class ReviewPage(Base, QWidget):
         scope_card.add_right_widget(self.file_select_button)
         scope_card.add_right_widget(self.scope_combo)
         parent.addWidget(scope_card)
+
+        # 起始行选择卡片
+        starting_line_card = SettingCard(
+            title=Localizer.get().review_page_starting_line,
+            description=Localizer.get().review_page_starting_line_desc,
+            parent=self,
+        )
+        self.starting_line_spin = SpinBox(starting_line_card)
+        self.starting_line_spin.setRange(1, 999999)
+        self.starting_line_spin.setValue(1)
+        self.starting_line_spin.setMinimumWidth(120)
+        starting_line_card.add_right_widget(self.starting_line_spin)
+        parent.addWidget(starting_line_card)
 
         # 已选文件列表（内部状态）
         self.selected_files: list[str] = []
@@ -461,6 +477,16 @@ class ReviewPage(Base, QWidget):
         )
         self.approve_action.setEnabled(False)
 
+        self.skip_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_SKIP,
+                Localizer.get().review_page_skip,
+                self.command_bar,
+                triggered=self.on_skip,
+            )
+        )
+        self.skip_action.setEnabled(False)
+
         self.deny_action = self.command_bar.add_action(
             Action(
                 ICON_ACTION_DENY,
@@ -549,6 +575,14 @@ class ReviewPage(Base, QWidget):
             TaskRunnerLifecycle.emit_no_items_warning(self)
             return
 
+        # 应用起始行偏移（跳过前 N-1 条）
+        starting_line = self.starting_line_spin.value()
+        if starting_line > 1:
+            review_items = review_items[starting_line - 1 :]
+            if not review_items:
+                TaskRunnerLifecycle.emit_no_items_warning(self)
+                return
+
         # 确认对话框
         message_box = MessageBox(
             Localizer.get().confirm,
@@ -619,6 +653,17 @@ class ReviewPage(Base, QWidget):
         self.emit(
             Base.Event.REVIEW_USER_DECISION,
             {"decision": "approve"},
+        )
+
+    def on_skip(self) -> None:
+        """跳过当前行，不应用任何修改，视为通过。"""
+        if not self.awaiting_approval:
+            return
+        self.awaiting_approval = False
+        self.update_buttons()
+        self.emit(
+            Base.Event.REVIEW_USER_DECISION,
+            {"decision": "skip"},
         )
 
     def on_deny(self) -> None:
@@ -837,6 +882,7 @@ class ReviewPage(Base, QWidget):
         # 审批按钮仅在等待用户审批时启用
         can_approve = is_reviewing and not is_stopping and self.awaiting_approval
         self.approve_action.setEnabled(can_approve)
+        self.skip_action.setEnabled(can_approve)
         self.deny_action.setEnabled(can_approve)
         self.retry_action.setEnabled(can_approve)
         self.ask_action.setEnabled(is_reviewing and not is_stopping)
@@ -844,6 +890,7 @@ class ReviewPage(Base, QWidget):
         # 审校过程中禁用设置
         self.scope_combo.setEnabled(not is_busy)
         self.file_select_button.setEnabled(not is_busy)
+        self.starting_line_spin.setEnabled(not is_busy)
         self.capture_switch.setEnabled(not is_busy)
         self.capture_mode_combo.setEnabled(not is_busy)
         self.capture_window_edit.setEnabled(not is_busy)

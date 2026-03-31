@@ -34,6 +34,7 @@ class ReviewEngine(Base):
 
     # 用户审批决定常量
     DECISION_APPROVE: str = "approve"
+    DECISION_SKIP: str = "skip"
     DECISION_DENY: str = "deny"
     DECISION_RETRY: str = "retry"
 
@@ -241,16 +242,21 @@ class ReviewEngine(Base):
                 if decision == self.DECISION_RETRY:
                     continue
 
-                # 若被批准且有修正，则写回数据层
+                # 若被批准且有修正，则写回数据层；跳过时不应用修正
                 if decision == self.DECISION_APPROVE:
                     self.apply_fix_if_needed(result, item)
+
+                # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
+                skipped = decision == self.DECISION_SKIP
 
                 # 汇总结果
                 with self.lock:
                     self.results.append(result)
 
                 reviewed += 1
-                if result.verdict == ReviewVerdict.PASS:
+                if skipped:
+                    pass_count += 1
+                elif result.verdict == ReviewVerdict.PASS:
                     pass_count += 1
                 elif result.verdict == ReviewVerdict.FIX:
                     fix_count += 1
@@ -398,7 +404,12 @@ class ReviewEngine(Base):
         if self.should_stop():
             return self.DECISION_DENY
 
-        if decision in (self.DECISION_APPROVE, self.DECISION_DENY, self.DECISION_RETRY):
+        if decision in (
+            self.DECISION_APPROVE,
+            self.DECISION_SKIP,
+            self.DECISION_DENY,
+            self.DECISION_RETRY,
+        ):
             return decision
 
         return self.DECISION_DENY
