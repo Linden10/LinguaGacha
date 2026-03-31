@@ -18,6 +18,7 @@ from qfluentwidgets import RoundMenu
 from qfluentwidgets import SwitchButton
 from qfluentwidgets import ToolTipFilter
 from qfluentwidgets import ToolTipPosition
+from qfluentwidgets import TransparentToolButton
 
 from base.Base import Base
 from base.BaseIcon import BaseIcon
@@ -26,6 +27,7 @@ from model.Item import Item
 from module.Config import Config
 from module.Data.DataManager import DataManager
 from module.Engine.Engine import Engine
+from module.Engine.Review.ReviewModels import ReviewHistoryEntry
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
@@ -48,6 +50,10 @@ ICON_ACTION_RESET: BaseIcon = BaseIcon.RECYCLE
 ICON_ACTION_RESET_FAILED: BaseIcon = BaseIcon.PAINTBRUSH
 ICON_ACTION_RESET_ALL: BaseIcon = BaseIcon.BRUSH_CLEANING
 ICON_NAV_REVIEW: BaseIcon = BaseIcon.CLIPBOARD_CHECK
+ICON_HISTORY: BaseIcon = BaseIcon.HISTORY
+ICON_HISTORY_UNDO: BaseIcon = BaseIcon.UNDO
+ICON_HISTORY_REDO: BaseIcon = BaseIcon.REDO
+ICON_HISTORY_SAVE: BaseIcon = BaseIcon.SAVE
 
 # 进度环最大值
 RING_MAX_VALUE: int = 10000
@@ -81,6 +87,10 @@ class ReviewPage(Base, QWidget):
 
         # 输出日志：累积每行审校结果的格式化文本
         self.output_lines: list[str] = []
+
+        # 历史面板：跟踪已批准的修正，支持 Undo/Redo
+        self.history_entries: list[ReviewHistoryEntry] = []
+        self.undo_stack: list[ReviewHistoryEntry] = []
 
         # 载入配置
         config = Config().load()
@@ -178,16 +188,75 @@ class ReviewPage(Base, QWidget):
 
         parent.addWidget(head_container)
 
-    # ==================== 输出窗口 ====================
+    # ==================== 输出窗口 + 历史面板 ====================
 
     def add_widget_output(self, parent: QVBoxLayout) -> None:
-        """添加 AI 输出展示区域和询问输入框（含发送按钮）。"""
+        """添加 AI 输出展示区域（左）和可折叠历史面板（右），以及询问输入框。"""
+        # 水平容器：输出区 + 历史面板
+        output_hbox_container = QWidget(self)
+        output_hbox = QHBoxLayout(output_hbox_container)
+        output_hbox.setContentsMargins(0, 0, 0, 0)
+        output_hbox.setSpacing(0)
+
         # 输出文本区域（只读）
         self.output_text = PlainTextEdit(self)
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText(Localizer.get().review_page_desc)
         self.output_text.setMinimumHeight(200)
-        parent.addWidget(self.output_text, 1)
+        output_hbox.addWidget(self.output_text, 1)
+
+        # 折叠/展开按钮（竖条，位于输出区和历史面板之间）
+        self.history_toggle_button = TransparentToolButton(BaseIcon.CHEVRON_RIGHT, self)
+        self.history_toggle_button.setFixedWidth(24)
+        self.history_toggle_button.clicked.connect(self.on_toggle_history_panel)
+        self.history_toggle_button.setToolTip(Localizer.get().review_page_history)
+        output_hbox.addWidget(self.history_toggle_button)
+
+        # 历史面板（默认隐藏）
+        self.history_panel = QWidget(self)
+        history_vbox = QVBoxLayout(self.history_panel)
+        history_vbox.setContentsMargins(8, 0, 0, 0)
+        history_vbox.setSpacing(4)
+
+        # 历史面板列表
+        self.history_list = ListWidget(self.history_panel)
+        self.history_list.setMinimumWidth(260)
+        self.history_list.setMaximumWidth(360)
+        history_vbox.addWidget(self.history_list, 1)
+
+        # 历史面板操作按钮行
+        history_btn_container = QWidget(self.history_panel)
+        history_btn_hbox = QHBoxLayout(history_btn_container)
+        history_btn_hbox.setContentsMargins(0, 0, 0, 0)
+        history_btn_hbox.setSpacing(4)
+
+        self.history_undo_button = PushButton(
+            ICON_HISTORY_UNDO, Localizer.get().review_page_history_undo
+        )
+        self.history_undo_button.clicked.connect(self.on_history_undo)
+        self.history_undo_button.setEnabled(False)
+        history_btn_hbox.addWidget(self.history_undo_button)
+
+        self.history_redo_button = PushButton(
+            ICON_HISTORY_REDO, Localizer.get().review_page_history_redo
+        )
+        self.history_redo_button.clicked.connect(self.on_history_redo)
+        self.history_redo_button.setEnabled(False)
+        history_btn_hbox.addWidget(self.history_redo_button)
+
+        self.history_save_button = PushButton(
+            ICON_HISTORY_SAVE, Localizer.get().review_page_history_save
+        )
+        self.history_save_button.clicked.connect(self.on_history_save)
+        self.history_save_button.setEnabled(False)
+        history_btn_hbox.addWidget(self.history_save_button)
+
+        history_vbox.addWidget(history_btn_container)
+
+        self.history_panel.setVisible(False)
+        output_hbox.addWidget(self.history_panel)
+
+        parent.addWidget(output_hbox_container, 1)
 
         # 询问输入区域：输入框 + 发送按钮（水平布局）
         self.inquiry_container = QWidget(self)
@@ -947,8 +1016,156 @@ class ReviewPage(Base, QWidget):
         self.reviewed_count = 0
         self.output_lines = []
         self.output_text.clear()
+        self.history_entries = []
+        self.undo_stack = []
+        self.refresh_history_list()
         self.clear_stats()
         self.update_buttons()
+
+    # ==================== 历史面板 ====================
+
+    def on_toggle_history_panel(self) -> None:
+        """切换历史面板的可见性。"""
+        visible = not self.history_panel.isVisible()
+        self.history_panel.setVisible(visible)
+        # 切换箭头方向
+        if visible:
+            self.history_toggle_button.setIcon(BaseIcon.CHEVRON_RIGHT)
+        else:
+            self.history_toggle_button.setIcon(BaseIcon.CHEVRON_RIGHT)
+
+    def add_history_entry(self, entry: ReviewHistoryEntry) -> None:
+        """将一条已批准的修正添加到历史记录，清空 redo 栈。"""
+        self.history_entries.append(entry)
+        self.undo_stack.clear()
+        self.refresh_history_list()
+        self.update_history_buttons()
+
+    def refresh_history_list(self) -> None:
+        """根据当前 history_entries 刷新历史列表控件。"""
+        self.history_list.clear()
+        if not self.history_entries:
+            self.history_list.addItem(Localizer.get().review_page_history_empty)
+            return
+
+        for entry in self.history_entries:
+            # 格式：[verdict] src → corrected
+            src_preview = entry.src[:40] + "…" if len(entry.src) > 40 else entry.src
+            if entry.verdict == "FIX" and entry.corrected:
+                label = f"[{entry.verdict}] {src_preview}"
+            else:
+                label = f"[{entry.verdict}] {src_preview}"
+            self.history_list.addItem(label)
+
+        # 选中最后一条
+        self.history_list.setCurrentRow(self.history_list.count() - 1)
+
+    def update_history_buttons(self) -> None:
+        """更新历史面板按钮可用性。"""
+        has_history = len(self.history_entries) > 0
+        has_undo = len(self.undo_stack) > 0
+
+        self.history_undo_button.setEnabled(has_history)
+        self.history_redo_button.setEnabled(has_undo)
+        self.history_save_button.setEnabled(has_history)
+
+    def on_history_undo(self) -> None:
+        """撤销最近一条已批准的修正：还原 item.dst 为 original_dst。"""
+        if not self.history_entries:
+            return
+
+        entry = self.history_entries.pop()
+        self.undo_stack.append(entry)
+
+        # 还原数据层中的译文
+        try:
+            dm = DataManager.get()
+            if dm.is_loaded():
+                items = dm.get_all_items()
+                for item in items:
+                    if (item.id or 0) == entry.item_id:
+                        item.dst = entry.original_dst
+                        dm.save_item(item)
+                        break
+        except Exception:
+            pass  # 项目可能已卸载，静默忽略
+
+        self.refresh_history_list()
+        self.update_history_buttons()
+
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.SUCCESS,
+                "message": Localizer.get().review_page_history_undo_success,
+            },
+        )
+
+    def on_history_redo(self) -> None:
+        """重做最近一条撤销的修正：重新应用 corrected 到 item.dst。"""
+        if not self.undo_stack:
+            return
+
+        entry = self.undo_stack.pop()
+        self.history_entries.append(entry)
+
+        # 重新应用修正到数据层
+        if entry.corrected:
+            try:
+                dm = DataManager.get()
+                if dm.is_loaded():
+                    items = dm.get_all_items()
+                    for item in items:
+                        if (item.id or 0) == entry.item_id:
+                            item.dst = entry.corrected
+                            dm.save_item(item)
+                            break
+            except Exception:
+                pass  # 项目可能已卸载，静默忽略
+
+        self.refresh_history_list()
+        self.update_history_buttons()
+
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.SUCCESS,
+                "message": Localizer.get().review_page_history_redo_success,
+            },
+        )
+
+    def on_history_save(self) -> None:
+        """立即保存所有历史修正行到 .lg 文件（通过 DataManager 持久化）。
+
+        DataManager.save_item() 已在 apply_fix_if_needed 中调用过，
+        此操作确认当前所有修正已被持久化，并给用户一个明确反馈。
+        """
+        if not self.history_entries:
+            return
+
+        count = 0
+        try:
+            dm = DataManager.get()
+            if dm.is_loaded():
+                items = dm.get_all_items()
+                item_map = {(item.id or 0): item for item in items}
+                for entry in self.history_entries:
+                    item = item_map.get(entry.item_id)
+                    if item is not None:
+                        dm.save_item(item)
+                        count += 1
+        except Exception:
+            pass  # 项目可能已卸载，静默忽略
+
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.SUCCESS,
+                "message": Localizer.get().review_page_history_save_success.replace(
+                    "{COUNT}", str(count)
+                ),
+            },
+        )
 
     # ==================== 事件处理 ====================
 
@@ -1028,6 +1245,20 @@ class ReviewPage(Base, QWidget):
             else:
                 self.output_lines.append(line)
                 output = "\n".join(self.output_lines)
+
+                # 已批准的 FIX 结果加入历史面板，支持 Undo/Redo
+                approved = data.get("approved", False)
+                verdict = result_data.get("verdict", "")
+                if approved and verdict == "FIX":
+                    entry = ReviewHistoryEntry(
+                        item_id=result_data.get("item_id", 0),
+                        src=result_data.get("src", ""),
+                        original_dst=result_data.get("original_dst", ""),
+                        corrected=result_data.get("corrected", ""),
+                        verdict=verdict,
+                        reason=result_data.get("reason", ""),
+                    )
+                    self.add_history_entry(entry)
             self.output_text.setPlainText(output)
             # 滚动到底部
             scrollbar = self.output_text.verticalScrollBar()
@@ -1128,6 +1359,9 @@ class ReviewPage(Base, QWidget):
         self.review_items = []
         self.reviewed_count = 0
         self.output_lines = []
+        self.history_entries = []
+        self.undo_stack = []
+        self.refresh_history_list()
         self.update_file_button_text()
         self.update_starting_line_button_text()
         self.output_text.clear()
