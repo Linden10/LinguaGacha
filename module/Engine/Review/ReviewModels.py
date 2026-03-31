@@ -40,6 +40,22 @@ class GlossaryReviewResult:
 
 
 @dataclasses.dataclass(frozen=True)
+class ReviewHistoryEntry:
+    """审校历史记录条目，用于 UI 的 Undo/Redo 功能。
+
+    每当一条审校结果被批准（approved）且包含修正（FIX），
+    就生成一条历史记录，保存修正前后的译文和对应的 Item 引用。
+    """
+
+    item_id: int  # 对应 Item.id
+    src: str  # 原文（展示用）
+    original_dst: str  # 修正前的译文
+    corrected: str  # 修正后的译文
+    verdict: str  # 审校结论字符串
+    reason: str  # 修正原因
+
+
+@dataclasses.dataclass(frozen=True)
 class ReviewProgressSnapshot:
     """审校进度快照，用于 UI 进度更新。"""
 
