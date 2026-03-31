@@ -43,6 +43,7 @@ RING_MAX_VALUE: int = 10000
 SCOPE_ALL: int = 0
 SCOPE_FILE: int = 1
 SCOPE_FAILED: int = 2
+LINE_PREVIEW_MAX_LENGTH: int = 60
 
 
 class ReviewPage(Base, QWidget):
@@ -348,8 +349,9 @@ class ReviewPage(Base, QWidget):
         line_list.setMinimumHeight(400)
         for i, item in enumerate(items):
             # 截断过长文本以保持列表可读
-            src = (item.src[:60] + " …") if len(item.src) > 60 else item.src
-            dst = (item.dst[:60] + " …") if len(item.dst) > 60 else item.dst
+            max_len = LINE_PREVIEW_MAX_LENGTH
+            src = (item.src[:max_len] + " …") if len(item.src) > max_len else item.src
+            dst = (item.dst[:max_len] + " …") if len(item.dst) > max_len else item.dst
             label = f"{i + 1}.  {src}  →  {dst}"
             line_list.addItem(label)
 
