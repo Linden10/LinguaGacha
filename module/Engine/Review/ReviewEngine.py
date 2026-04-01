@@ -147,6 +147,9 @@ class ReviewEngine(Base):
             TaskRunnerLifecycle.emit_no_items_warning(self)
             return
 
+        # 上文条目：不参与审校，但为前几条提供上下文
+        context_items: list[Item] = data.get("context_items", [])
+
         # 重置状态
         with self.lock:
             self.stop_requested = False
@@ -162,15 +165,23 @@ class ReviewEngine(Base):
             busy_status=Base.TaskStatus.REVIEWING,
             task_event=Base.Event.REVIEW_TASK,
             mode=Base.TranslationMode.NEW,
-            worker=lambda: self.run_review(items),
+            worker=lambda: self.run_review(items, context_items),
         )
 
-    def run_review(self, items: list[Item]) -> None:
+    def run_review(
+        self, items: list[Item], context_items: list[Item] | None = None
+    ) -> None:
         """后台线程：执行审校任务主循环。
 
         支持并发预取：根据模型的 Concurrent Task Limit 设置，在等待用户审批时
         预先向 AI 请求后续条目的审校结果，减少用户的等待时间。
+
+        context_items: 不参与审校的上文条目，为起始处的条目提供前文上下文。
         """
+        # 将上文条目拼在 items 前面，形成完整序列用于上下文查找
+        ctx = context_items or []
+        offset = len(ctx)
+        all_items = ctx + items
         final_status = "FAILED"
         capturer: GameCapture | None = None
 
@@ -235,10 +246,11 @@ class ReviewEngine(Base):
 
                     item = items[i]
 
-                    # 收集上文
+                    # 收集上文（利用 context_items 提供的前文）
                     preceding_count = config.review_preceding_lines
-                    start_idx = max(0, i - preceding_count)
-                    precedings = items[start_idx:i]
+                    abs_idx = offset + i
+                    start_idx = max(0, abs_idx - preceding_count)
+                    precedings = all_items[start_idx:abs_idx]
 
                     # 自动推进游戏并捕获截图
                     screenshot_b64 = ""
@@ -299,6 +311,8 @@ class ReviewEngine(Base):
                             executor=executor,
                             cache=prefetch_cache,
                             items=items,
+                            all_items=all_items,
+                            offset=offset,
                             start_index=i + 1,
                             max_prefetch=max(1, max_workers - 1),
                             config=config,
@@ -411,6 +425,8 @@ class ReviewEngine(Base):
         executor: concurrent.futures.ThreadPoolExecutor,
         cache: dict[int, concurrent.futures.Future[ReviewResult]],
         items: list[Item],
+        all_items: list[Item],
+        offset: int,
         start_index: int,
         max_prefetch: int,
         config: Config,
@@ -422,6 +438,7 @@ class ReviewEngine(Base):
 
         只预取尚未在缓存中且索引在范围内的条目。
         预取不包含截图（截图需要实时捕获游戏画面，无法提前获取）。
+        all_items 和 offset 用于从 context_items 中提取前文上下文。
         """
         total = len(items)
         submitted = 0
@@ -433,8 +450,9 @@ class ReviewEngine(Base):
 
             prefetch_item = items[idx]
             preceding_count = config.review_preceding_lines
-            pstart = max(0, idx - preceding_count)
-            prefetch_precedings = items[pstart:idx]
+            abs_idx = offset + idx
+            pstart = max(0, abs_idx - preceding_count)
+            prefetch_precedings = all_items[pstart:abs_idx]
 
             future = executor.submit(
                 self.review_single_item_with_retry,

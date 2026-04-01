@@ -940,11 +940,14 @@ class ReviewPage(Base, QWidget):
                 TaskRunnerLifecycle.emit_no_items_warning(self)
                 return
 
+            # 已审校的条目作为后续条目的上文
+            context_items = self.review_items[: self.reviewed_count]
             self.emit(
                 Base.Event.REVIEW_TASK,
                 {
                     "sub_event": Base.SubEvent.REQUEST,
                     "items": remaining,
+                    "context_items": context_items,
                 },
             )
             return
@@ -1000,8 +1003,11 @@ class ReviewPage(Base, QWidget):
             TaskRunnerLifecycle.emit_no_items_warning(self)
             return
 
-        # 应用起始行偏移
+        # 应用起始行偏移，并保留上文条目供引擎使用
+        context_items: list[Item] = []
         if self.starting_line_index > 0:
+            # 取起始行之前的条目作为上文（不超过合理上限）
+            context_items = review_items[: self.starting_line_index]
             review_items = review_items[self.starting_line_index :]
             if not review_items:
                 TaskRunnerLifecycle.emit_no_items_warning(self)
@@ -1032,6 +1038,7 @@ class ReviewPage(Base, QWidget):
             {
                 "sub_event": Base.SubEvent.REQUEST,
                 "items": review_items,
+                "context_items": context_items,
             },
         )
 
