@@ -1,4 +1,7 @@
+import re
+
 from PySide6.QtCore import QPoint
+from PySide6.QtCore import QTimer
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QHBoxLayout
@@ -107,6 +110,12 @@ class ReviewPage(Base, QWidget):
 
         # 输出日志：累积每行审校结果的格式化文本，附带 verdict 用于过滤
         self.output_entries: list[tuple[str, str]] = []
+
+        # Ask AI 对话记录：当前待批条目的问答行，显示在待批结果下方
+        self.inquiry_lines: list[str] = []
+
+        # Ask AI 提取的备选 dst（用于选择后覆盖原始修正）
+        self.dst_alternatives: list[str] = []
 
         # 历史面板：跟踪已批准的修正，支持 Undo/Redo
         self.history_entries: list[ReviewHistoryEntry] = []
@@ -349,6 +358,19 @@ class ReviewPage(Base, QWidget):
         self.inquiry_container.setVisible(False)
         parent.addWidget(self.inquiry_container)
 
+        # Ask AI 备选 dst 选择器：仅在 Ask AI 提取到新的 dst 时显示
+        self.dst_selector_container = QWidget(self)
+        dst_hbox = QHBoxLayout(self.dst_selector_container)
+        dst_hbox.setContentsMargins(0, 0, 0, 0)
+        dst_hbox.setSpacing(8)
+
+        self.dst_selector_combo = ComboBox(self.dst_selector_container)
+        self.dst_selector_combo.setMinimumWidth(400)
+        dst_hbox.addWidget(self.dst_selector_combo, 1)
+
+        self.dst_selector_container.setVisible(False)
+        parent.addWidget(self.dst_selector_container)
+
     def eventFilter(self, obj: object, event: object) -> bool:
         """拦截询问输入框的 Enter 键：Enter 发送，Shift+Enter 换行。"""
         if obj is self.inquiry_input and isinstance(event, QKeyEvent):
@@ -519,10 +541,7 @@ class ReviewPage(Base, QWidget):
 
     def on_output_filter_changed(self, index: int) -> None:
         """输出日志过滤条件变更，重建显示内容。"""
-        output = self.build_filtered_output()
-        if self.awaiting_approval and self.awaiting_result_line:
-            output += "\n\n" + self.awaiting_result_line
-        self.output_text.setPlainText(output)
+        self.refresh_output_display()
 
     def build_filtered_output(self) -> str:
         """根据当前过滤条件，从 output_entries 构建显示文本。"""
@@ -535,6 +554,77 @@ class ReviewPage(Base, QWidget):
 
         filtered = [text for v, text in self.output_entries if v == target_verdict]
         return "\n".join(filtered)
+
+    def refresh_output_display(self) -> None:
+        """重建并刷新输出文本区域，保持统一的显示顺序：
+        [已完成结果] → [待批结果] → [Ask AI 对话]
+        """
+        parts: list[str] = [self.build_filtered_output()]
+
+        # 待批结果显示在已完成结果之后
+        if self.awaiting_approval and self.awaiting_result_line:
+            parts.append(self.awaiting_result_line)
+
+        # Ask AI 对话显示在待批结果之后
+        if self.inquiry_lines:
+            parts.append("\n".join(self.inquiry_lines))
+
+        self.output_text.setPlainText("\n\n".join(p for p in parts if p))
+        self.scroll_output_to_bottom()
+
+    def scroll_output_to_bottom(self) -> None:
+        """将输出文本区域滚动到底部（延迟执行以确保布局更新完成）。"""
+
+        def do_scroll() -> None:
+            scrollbar = self.output_text.verticalScrollBar()
+            if scrollbar:
+                scrollbar.setValue(scrollbar.maximum())
+
+        QTimer.singleShot(0, do_scroll)
+
+    @staticmethod
+    def extract_dst_from_answer(answer: str) -> list[str]:
+        """从 Ask AI 回答中提取 dst: 行作为备选翻译。
+
+        匹配引擎提示词要求的格式 "dst: <corrected translation>"。
+        """
+        results: list[str] = []
+        for match in re.finditer(r"(?:^|\n)\s*dst:\s*(.+)", answer):
+            value = match.group(1).strip()
+            if value:
+                results.append(value)
+        return results
+
+    def refresh_dst_selector(self) -> None:
+        """根据当前 dst_alternatives 刷新选择器内容并显示。"""
+        if not self.dst_alternatives:
+            self.hide_dst_selector()
+            return
+
+        self.dst_selector_combo.clear()
+        loc = Localizer.get()
+        for i, dst in enumerate(self.dst_alternatives):
+            label = loc.review_page_dst_option.replace("{INDEX}", str(i + 1)).replace(
+                "{TEXT}", dst
+            )
+            self.dst_selector_combo.addItem(label)
+        # 默认选中最新的备选
+        self.dst_selector_combo.setCurrentIndex(len(self.dst_alternatives) - 1)
+        self.dst_selector_container.setVisible(True)
+
+    def hide_dst_selector(self) -> None:
+        """隐藏备选 dst 选择器。"""
+        self.dst_selector_container.setVisible(False)
+        self.dst_selector_combo.clear()
+
+    def get_selected_dst(self) -> str:
+        """获取用户在选择器中选中的备选 dst，若无则返回空字符串。"""
+        if not self.dst_selector_container.isVisible():
+            return ""
+        index = self.dst_selector_combo.currentIndex()
+        if 0 <= index < len(self.dst_alternatives):
+            return self.dst_alternatives[index]
+        return ""
 
     def on_select_starting_line_clicked(self) -> None:
         """打开起始行选择对话框，展示可审校条目列表供用户选择。
@@ -733,7 +823,7 @@ class ReviewPage(Base, QWidget):
     def add_widget_foot(self, parent: QVBoxLayout, config: Config) -> None:
         """添加底部命令栏：开始/停止 + 重置 + 审批操作按钮 + Ask AI 独立按钮。"""
         self.command_bar = CommandBarCard()
-        self.command_bar.set_minimum_width(640)
+        self.command_bar.set_minimum_width(960)
 
         # 开始/继续审校按钮
         self.start_action = self.command_bar.add_action(
@@ -1025,15 +1115,17 @@ class ReviewPage(Base, QWidget):
     # ==================== 审批操作占位 ====================
 
     def on_approve(self) -> None:
-        """通过当前审校建议，通知引擎继续。"""
+        """通过当前审校建议，通知引擎继续。若用户选择了备选 dst 则一并传递。"""
         if not self.awaiting_approval:
             return
         self.awaiting_approval = False
         self.update_buttons()
-        self.emit(
-            Base.Event.REVIEW_USER_DECISION,
-            {"decision": "approve"},
-        )
+        decision_data: dict[str, str] = {"decision": "approve"}
+        selected = self.get_selected_dst()
+        if selected:
+            decision_data["custom_dst"] = selected
+        self.clear_inquiry_state()
+        self.emit(Base.Event.REVIEW_USER_DECISION, decision_data)
 
     def on_skip(self) -> None:
         """跳过当前行，不应用任何修改，视为通过。"""
@@ -1041,6 +1133,7 @@ class ReviewPage(Base, QWidget):
             return
         self.awaiting_approval = False
         self.update_buttons()
+        self.clear_inquiry_state()
         self.emit(
             Base.Event.REVIEW_USER_DECISION,
             {"decision": "skip"},
@@ -1052,6 +1145,7 @@ class ReviewPage(Base, QWidget):
             return
         self.awaiting_approval = False
         self.update_buttons()
+        self.clear_inquiry_state()
         self.emit(
             Base.Event.REVIEW_USER_DECISION,
             {"decision": "deny"},
@@ -1063,6 +1157,7 @@ class ReviewPage(Base, QWidget):
             return
         self.awaiting_approval = False
         self.update_buttons()
+        self.clear_inquiry_state()
         self.emit(
             Base.Event.REVIEW_USER_DECISION,
             {"decision": "retry"},
@@ -1085,20 +1180,12 @@ class ReviewPage(Base, QWidget):
         if not text:
             return
 
-        # 将问题追加到输出日志，保留待批结果在末尾
+        # 将问题追加到 Ask AI 对话记录（显示在待批结果下方）
         loc = Localizer.get()
         q_line = loc.review_page_inquiry_question.replace("{TEXT}", text)
-        self.output_entries.append(("", ""))
-        self.output_entries.append(("", q_line))
+        self.inquiry_lines.append(q_line)
 
-        if self.awaiting_approval and self.awaiting_result_line:
-            output = self.build_filtered_output() + "\n\n" + self.awaiting_result_line
-        else:
-            output = self.build_filtered_output()
-        self.output_text.setPlainText(output)
-        scrollbar = self.output_text.verticalScrollBar()
-        if scrollbar:
-            scrollbar.setValue(scrollbar.maximum())
+        self.refresh_output_display()
 
         # 清空输入框
         self.inquiry_input.clear()
@@ -1108,6 +1195,13 @@ class ReviewPage(Base, QWidget):
             Base.Event.REVIEW_USER_DECISION,
             {"decision": "inquiry", "text": text},
         )
+
+    def clear_inquiry_state(self) -> None:
+        """清空 Ask AI 对话记录和备选 dst（审批操作后调用）。"""
+        self.inquiry_lines = []
+        self.dst_alternatives = []
+        self.hide_dst_selector()
+        self.inquiry_container.setVisible(False)
 
     def on_reset_clicked(self) -> None:
         """弹出重置菜单：重置失败行 / 重置全部。"""
@@ -1178,6 +1272,9 @@ class ReviewPage(Base, QWidget):
         self.undo_stack = []
         self.failed_item_ids = set()
         self.auto_retry_count = 0
+        self.inquiry_lines = []
+        self.dst_alternatives = []
+        self.hide_dst_selector()
         self.refresh_history_list()
         self.clear_stats()
         self.update_buttons()
@@ -1418,16 +1515,18 @@ class ReviewPage(Base, QWidget):
                 awaiting,
             )
             if awaiting:
+                # 新的待批条目：清空上一条的 Ask AI 对话和备选 dst
+                self.inquiry_lines = []
+                self.dst_alternatives = []
+                self.hide_dst_selector()
+
                 # 待批结果不追加到永久日志，仅在末尾展示
                 self.awaiting_approval = True
                 self.awaiting_result_line = line
                 self.update_buttons()
-                # 空行分隔已完成日志和待批项，使其视觉上更突出
-                output = self.build_filtered_output() + "\n\n" + line
             else:
                 verdict = result_data.get("verdict", "")
                 self.output_entries.append((verdict, line))
-                output = self.build_filtered_output()
 
                 # 跟踪失败行（用于自动重试）
                 if verdict in ("FAIL", "ERROR"):
@@ -1447,7 +1546,7 @@ class ReviewPage(Base, QWidget):
                         reason=result_data.get("reason", ""),
                     )
                     self.add_history_entry(entry)
-            self.output_text.setPlainText(output)
+            self.refresh_output_display()
         else:
             # 回退：仅显示进度行
             progress_text = (
@@ -1456,6 +1555,7 @@ class ReviewPage(Base, QWidget):
                 .replace("{TOTAL}", str(total))
             )
             self.output_text.setPlainText(progress_text)
+            self.scroll_output_to_bottom()
 
     @staticmethod
     def format_result_line(
@@ -1506,21 +1606,21 @@ class ReviewPage(Base, QWidget):
         return "\n".join(parts)
 
     def handle_inquiry_response(self, inquiry_response: dict) -> None:
-        """将 Ask AI 的回答追加到输出区域，保留待批结果在末尾。"""
+        """将 Ask AI 的回答追加到对话区域，并解析可能的备选 dst。"""
         loc = Localizer.get()
         answer = inquiry_response.get("answer", "")
         a_line = loc.review_page_inquiry_answer.replace("{TEXT}", answer)
-        self.output_entries.append(("", a_line))
-        self.output_entries.append(("", ""))
+        self.inquiry_lines.append(a_line)
 
-        if self.awaiting_approval and self.awaiting_result_line:
-            output = self.build_filtered_output() + "\n\n" + self.awaiting_result_line
-        else:
-            output = self.build_filtered_output()
-        self.output_text.setPlainText(output)
-        scrollbar = self.output_text.verticalScrollBar()
-        if scrollbar:
-            scrollbar.setValue(scrollbar.maximum())
+        # 从 AI 回答中提取 dst: 行作为备选翻译
+        suggested = self.extract_dst_from_answer(answer)
+        if suggested:
+            for dst in suggested:
+                if dst not in self.dst_alternatives:
+                    self.dst_alternatives.append(dst)
+            self.refresh_dst_selector()
+
+        self.refresh_output_display()
 
     def on_review_stop(self, event: Base.Event, data: dict) -> None:
         """响应审校停止事件。"""
@@ -1552,6 +1652,9 @@ class ReviewPage(Base, QWidget):
         self.undo_stack = []
         self.failed_item_ids = set()
         self.auto_retry_count = 0
+        self.inquiry_lines = []
+        self.dst_alternatives = []
+        self.hide_dst_selector()
         self.refresh_history_list()
         self.update_file_button_text()
         self.update_starting_line_button_text()
@@ -1686,8 +1789,13 @@ class ReviewPage(Base, QWidget):
             return
 
         selected_title = windows[row][0]
+        selected_pid = windows[row][1]
         self.capture_window_edit.setText(selected_title)
-        self.on_capture_window_changed()
+        # 同时保存 PID（热键发送优先使用 PID 定位窗口）
+        config = Config().load()
+        config.review_capture_window = selected_title
+        config.review_capture_window_pid = selected_pid
+        config.save()
 
     def on_capture_hotkey_changed(self) -> None:
         """热键变更（文本编辑完成或键盘捕获时统一触发）。"""

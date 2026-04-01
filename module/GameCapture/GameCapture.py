@@ -491,7 +491,12 @@ class GameCapture:
 
     @staticmethod
     def send_hotkey_windows(window_title: str, key: str) -> bool:
-        """Windows: 通过 PowerShell 激活窗口并发送按键。"""
+        """Windows: 通过 PowerShell 激活窗口并发送按键。
+
+        优先使用配置中的 PID 定位窗口（更可靠），回退到窗口标题匹配。
+        """
+        from module.Config import Config
+
         # 将常见键名映射到 SendKeys 格式
         key_map: dict[str, str] = {
             "Enter": "{ENTER}",
@@ -502,11 +507,21 @@ class GameCapture:
         }
         send_key = key_map.get(key, key)
 
+        # 优先通过 PID 查找窗口句柄（比标题匹配更可靠）
+        config = Config().load()
+        pid = config.review_capture_window_pid.strip()
+        if pid:
+            find_handle = f"$w = (Get-Process -Id {pid}).MainWindowHandle"
+        else:
+            find_handle = (
+                "$w = (Get-Process | Where-Object"
+                " {$_.MainWindowTitle -like "
+                f"'*{window_title}*'"
+                "}).MainWindowHandle"
+            )
+
         ps_script = (
-            "$w = (Get-Process | Where-Object"
-            " {$_.MainWindowTitle -like "
-            f"'*{window_title}*'"
-            "}).MainWindowHandle;"
+            f"{find_handle};"
             "Add-Type -AssemblyName Microsoft.VisualBasic;"
             "[Microsoft.VisualBasic.Interaction]::AppActivate($w);"
             "Start-Sleep -Milliseconds 100;"
@@ -516,7 +531,7 @@ class GameCapture:
         result = subprocess.run(
             ["powershell", "-Command", ps_script],
             capture_output=True,
-            timeout=5,
+            timeout=30,
         )
         return result.returncode == 0
 

@@ -114,7 +114,8 @@ class Config:
     # ReviewPage — 游戏窗口捕获
     review_capture_enable: bool = False  # 是否启用游戏窗口捕获
     review_capture_mode: str = CaptureMode.IMAGE  # 捕获模式（截图 / 录像 / 录音）
-    review_capture_window: str = ""  # 游戏窗口标题
+    review_capture_window: str = ""  # 游戏窗口标题（截图用）
+    review_capture_window_pid: str = ""  # 游戏窗口进程 ID（热键发送用，比标题更可靠）
     review_capture_hotkey: str = ""  # 发送给游戏窗口的热键（如 Enter、Space）
     review_capture_auto_advance: bool = False  # 每行审校前自动发送热键推进游戏
 

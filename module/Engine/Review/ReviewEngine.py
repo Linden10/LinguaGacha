@@ -57,6 +57,7 @@ class ReviewEngine(Base):
         self.approval_event: threading.Event = threading.Event()
         self.user_decision: str = ""
         self.inquiry_text: str = ""
+        self.custom_dst: str = ""
 
         # 当前审校上下文（用于 Ask AI 查询）
         self.current_config: Config | None = None
@@ -109,6 +110,8 @@ class ReviewEngine(Base):
             self.user_decision = decision
             if decision == self.DECISION_INQUIRY:
                 self.inquiry_text = data.get("text", "")
+            # Ask AI 可能提供了用户选择的备选 dst
+            self.custom_dst = data.get("custom_dst", "")
         self.approval_event.set()
 
     def on_pause_next(self, event: Base.Event, data: dict) -> None:
@@ -320,7 +323,10 @@ class ReviewEngine(Base):
 
                     # 若被批准且有修正，则写回数据层；跳过时不应用修正
                     if decision == self.DECISION_APPROVE:
-                        self.apply_fix_if_needed(result, item)
+                        # 用户可能通过 Ask AI 选择了备选 dst
+                        with self.lock:
+                            custom_dst = self.custom_dst
+                        self.apply_fix_if_needed(result, item, custom_dst=custom_dst)
 
                     # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
                     skipped = decision == self.DECISION_SKIP
@@ -561,6 +567,7 @@ class ReviewEngine(Base):
             with self.lock:
                 self.user_decision = ""
                 self.inquiry_text = ""
+                self.custom_dst = ""
                 self.approval_event.clear()
 
             while not self.should_stop():
@@ -589,15 +596,19 @@ class ReviewEngine(Base):
 
             return self.DECISION_DENY
 
-    def apply_fix_if_needed(self, result: ReviewResult, item: Item) -> None:
+    def apply_fix_if_needed(
+        self, result: ReviewResult, item: Item, *, custom_dst: str = ""
+    ) -> None:
         """若结果为 FIX 且有修正文本，将修正写回数据层。
 
+        custom_dst: 用户通过 Ask AI 选择的备选翻译，优先于 result.corrected。
         注意：会直接修改 item.dst，使后续上文引用的也是修正后的译文。
         """
         if result.verdict != ReviewVerdict.FIX or not result.corrected:
             return
 
-        item.dst = result.corrected
+        dst = custom_dst if custom_dst else result.corrected
+        item.dst = dst
         try:
             DataManager.get().save_item(item)
         except Exception as e:
