@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import Action
 from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
+from qfluentwidgets import SingleDirectionScrollArea
 from qfluentwidgets import ListWidget
 from qfluentwidgets import MenuAnimationType
 from qfluentwidgets import MessageBox
@@ -63,6 +64,23 @@ SCOPE_FILE: int = 1
 SCOPE_FAILED: int = 2
 LINE_PREVIEW_MAX_LENGTH: int = 60
 
+# 输出过滤索引
+FILTER_ALL: int = 0
+FILTER_PASS: int = 1
+FILTER_FIX: int = 2
+FILTER_FAIL: int = 3
+FILTER_ERROR: int = 4
+
+FILTER_INDEX_TO_VERDICT: dict[int, str] = {
+    FILTER_PASS: "PASS",
+    FILTER_FIX: "FIX",
+    FILTER_FAIL: "FAIL",
+    FILTER_ERROR: "ERROR",
+}
+
+# 自动重试默认上限（当 config.max_round <= 0 时的兜底）
+AUTO_RETRY_DEFAULT_LIMIT: int = 3
+
 
 class ReviewPage(Base, QWidget):
     """AI 审校页面。
@@ -87,12 +105,16 @@ class ReviewPage(Base, QWidget):
         self.review_items: list[Item] = []
         self.reviewed_count: int = 0
 
-        # 输出日志：累积每行审校结果的格式化文本
-        self.output_lines: list[str] = []
+        # 输出日志：累积每行审校结果的格式化文本，附带 verdict 用于过滤
+        self.output_entries: list[tuple[str, str]] = []
 
         # 历史面板：跟踪已批准的修正，支持 Undo/Redo
         self.history_entries: list[ReviewHistoryEntry] = []
         self.undo_stack: list[ReviewHistoryEntry] = []
+
+        # 自动重试失败行追踪
+        self.failed_item_ids: set[int] = set()
+        self.auto_retry_count: int = 0
 
         # 载入配置
         config = Config().load()
@@ -102,11 +124,26 @@ class ReviewPage(Base, QWidget):
         self.container.setSpacing(8)
         self.container.setContentsMargins(24, 24, 24, 24)
 
-        # 添加控件
-        self.add_widget_head(self.container, config)
-        self.add_widget_output(self.container)
-        self.add_widget_scope(self.container)
-        self.add_widget_capture(self.container, config)
+        # 滚动区域：head / output / scope / capture 放入滚动容器，避免 Game Capture 展开时挤压输出区
+        scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(scroll_content)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setSpacing(8)
+
+        scroll_area = SingleDirectionScrollArea(orient=Qt.Orientation.Vertical)
+        scroll_area.setWidget(scroll_content)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.enableTransparentBackground()
+        self.container.addWidget(scroll_area, 1)
+
+        # 添加控件到滚动区域
+        self.add_widget_head(self.scroll_layout, config)
+        self.add_widget_output(self.scroll_layout)
+        self.add_widget_scope(self.scroll_layout, config)
+        self.add_widget_capture(self.scroll_layout, config)
+        self.scroll_layout.addStretch(1)
+
+        # 底部工具栏固定在滚动区域外
         self.add_widget_foot(self.container, config)
 
         # 订阅事件
@@ -176,7 +213,7 @@ class ReviewPage(Base, QWidget):
 
         self.error_card = DashboardCard(
             parent=self,
-            title=Localizer.get().review_page_error,
+            title=Localizer.get().review_page_line_error,
             value="0",
             unit="Line",
         )
@@ -194,6 +231,33 @@ class ReviewPage(Base, QWidget):
 
     def add_widget_output(self, parent: QVBoxLayout) -> None:
         """添加 AI 输出展示区域（左）和可折叠历史面板（右），以及询问输入框。"""
+
+        # 输出日志过滤栏
+        filter_bar = QWidget(self)
+        filter_hbox = QHBoxLayout(filter_bar)
+        filter_hbox.setContentsMargins(0, 0, 0, 0)
+        filter_hbox.setSpacing(8)
+
+        self.output_filter_combo = ComboBox(self)
+        loc = Localizer.get()
+        self.output_filter_combo.addItems(
+            [
+                loc.review_page_filter_all,
+                loc.review_page_filter_pass,
+                loc.review_page_filter_fix,
+                loc.review_page_filter_fail,
+                loc.review_page_filter_error,
+            ]
+        )
+        self.output_filter_combo.setCurrentIndex(0)
+        self.output_filter_combo.currentIndexChanged.connect(
+            self.on_output_filter_changed
+        )
+        self.output_filter_combo.setMinimumWidth(120)
+        filter_hbox.addWidget(self.output_filter_combo)
+        filter_hbox.addStretch(1)
+        parent.addWidget(filter_bar)
+
         # 水平容器：输出区 + 历史面板
         output_hbox_container = QWidget(self)
         output_hbox = QHBoxLayout(output_hbox_container)
@@ -204,7 +268,7 @@ class ReviewPage(Base, QWidget):
         self.output_text = PlainTextEdit(self)
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText(Localizer.get().review_page_desc)
-        self.output_text.setMinimumHeight(200)
+        self.output_text.setMinimumHeight(280)
         output_hbox.addWidget(self.output_text, 1)
 
         # 折叠/展开按钮（竖条，位于输出区和历史面板之间）
@@ -222,8 +286,8 @@ class ReviewPage(Base, QWidget):
 
         # 历史面板列表
         self.history_list = ListWidget(self.history_panel)
-        self.history_list.setMinimumWidth(260)
-        self.history_list.setMaximumWidth(360)
+        self.history_list.setMinimumWidth(320)
+        self.history_list.setMaximumWidth(480)
         history_vbox.addWidget(self.history_list, 1)
 
         # 历史面板操作按钮行
@@ -300,7 +364,7 @@ class ReviewPage(Base, QWidget):
 
     # ==================== 审校范围 ====================
 
-    def add_widget_scope(self, parent: QVBoxLayout) -> None:
+    def add_widget_scope(self, parent: QVBoxLayout, config: Config) -> None:
         """添加审校范围选择（全部文件/选定文件/失败行）和文件选择按钮。"""
         scope_card = SettingCard(
             title=Localizer.get().review_page_scope,
@@ -346,6 +410,18 @@ class ReviewPage(Base, QWidget):
         self.starting_line_button.clicked.connect(self.on_select_starting_line_clicked)
         starting_line_card.add_right_widget(self.starting_line_button)
         parent.addWidget(starting_line_card)
+
+        # 自动重试失败行开关
+        auto_retry_card = SettingCard(
+            title=Localizer.get().review_page_auto_retry_failed,
+            description=Localizer.get().review_page_auto_retry_failed_desc,
+            parent=self,
+        )
+        self.auto_retry_switch = SwitchButton(self)
+        self.auto_retry_switch.setChecked(config.review_auto_retry_failed)
+        self.auto_retry_switch.checkedChanged.connect(self.on_auto_retry_changed)
+        auto_retry_card.add_right_widget(self.auto_retry_switch)
+        parent.addWidget(auto_retry_card)
 
         # 已选文件列表（内部状态）
         self.selected_files: list[str] = []
@@ -434,6 +510,31 @@ class ReviewPage(Base, QWidget):
     def on_scope_changed(self, index: int) -> None:
         """审校范围变更：控制文件选择按钮可见性。"""
         self.file_select_button.setVisible(index == SCOPE_FILE)
+
+    def on_auto_retry_changed(self, checked: bool) -> None:
+        """自动重试开关变更。"""
+        config = Config().load()
+        config.review_auto_retry_failed = checked
+        config.save()
+
+    def on_output_filter_changed(self, index: int) -> None:
+        """输出日志过滤条件变更，重建显示内容。"""
+        output = self.build_filtered_output()
+        if self.awaiting_approval and self.awaiting_result_line:
+            output += "\n\n" + self.awaiting_result_line
+        self.output_text.setPlainText(output)
+
+    def build_filtered_output(self) -> str:
+        """根据当前过滤条件，从 output_entries 构建显示文本。"""
+        filter_index = self.output_filter_combo.currentIndex()
+        if filter_index == FILTER_ALL:
+            # 全部：显示所有条目
+            return "\n".join(text for _, text in self.output_entries)
+
+        target_verdict = FILTER_INDEX_TO_VERDICT.get(filter_index, "")
+
+        filtered = [text for v, text in self.output_entries if v == target_verdict]
+        return "\n".join(filtered)
 
     def on_select_starting_line_clicked(self) -> None:
         """打开起始行选择对话框，展示可审校条目列表供用户选择。
@@ -706,23 +807,29 @@ class ReviewPage(Base, QWidget):
         )
         self.skip_action.setEnabled(False)
 
+        self.deny_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_DENY,
+                Localizer.get().review_page_deny,
+                self.command_bar,
+                triggered=self.on_deny,
+            )
+        )
+        self.deny_action.setEnabled(False)
+
+        self.retry_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_RETRY,
+                Localizer.get().review_page_retry,
+                self.command_bar,
+                triggered=self.on_retry,
+            )
+        )
+        self.retry_action.setEnabled(False)
+
         self.command_bar.add_stretch(1)
 
-        # Deny / Retry / Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
-        self.deny_button = PushButton(
-            ICON_ACTION_DENY, Localizer.get().review_page_deny
-        )
-        self.deny_button.setEnabled(False)
-        self.deny_button.clicked.connect(self.on_deny)
-        self.command_bar.add_widget(self.deny_button)
-
-        self.retry_button = PushButton(
-            ICON_ACTION_RETRY, Localizer.get().review_page_retry
-        )
-        self.retry_button.setEnabled(False)
-        self.retry_button.clicked.connect(self.on_retry)
-        self.command_bar.add_widget(self.retry_button)
-
+        # Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
         self.ask_ai_button = PushButton(
             ICON_ACTION_ASK, Localizer.get().review_page_ask_ai
         )
@@ -823,10 +930,12 @@ class ReviewPage(Base, QWidget):
             return
 
         # 清空输出并开始新会话
-        self.output_lines = []
+        self.output_entries = []
         self.output_text.clear()
         self.review_items = review_items
         self.reviewed_count = 0
+        self.failed_item_ids = set()
+        self.auto_retry_count = 0
 
         self.emit(
             Base.Event.REVIEW_TASK,
@@ -869,6 +978,40 @@ class ReviewPage(Base, QWidget):
             {
                 "sub_event": Base.SubEvent.REQUEST,
                 "items": items,
+            },
+        )
+
+    def auto_retry_failed_items(self) -> None:
+        """自动重试失败的审校行。"""
+        dm = DataManager.get()
+        if not dm.is_loaded():
+            return
+
+        items = dm.get_all_items()
+        item_id_set = set(self.failed_item_ids)
+        retry_items = [item for item in items if (item.id or 0) in item_id_set]
+        if not retry_items:
+            return
+
+        self.failed_item_ids.clear()
+        self.review_items = retry_items
+        self.reviewed_count = 0
+
+        self.emit(
+            Base.Event.TOAST,
+            {
+                "type": Base.ToastType.INFO,
+                "message": Localizer.get().review_page_auto_retry_started.replace(
+                    "{COUNT}", str(len(retry_items))
+                ),
+            },
+        )
+
+        self.emit(
+            Base.Event.REVIEW_TASK,
+            {
+                "sub_event": Base.SubEvent.REQUEST,
+                "items": retry_items,
             },
         )
 
@@ -945,13 +1088,13 @@ class ReviewPage(Base, QWidget):
         # 将问题追加到输出日志，保留待批结果在末尾
         loc = Localizer.get()
         q_line = loc.review_page_inquiry_question.replace("{TEXT}", text)
-        self.output_lines.append("")
-        self.output_lines.append(q_line)
+        self.output_entries.append(("", ""))
+        self.output_entries.append(("", q_line))
 
         if self.awaiting_approval and self.awaiting_result_line:
-            output = "\n".join(self.output_lines + ["", self.awaiting_result_line])
+            output = self.build_filtered_output() + "\n\n" + self.awaiting_result_line
         else:
-            output = "\n".join(self.output_lines)
+            output = self.build_filtered_output()
         self.output_text.setPlainText(output)
         scrollbar = self.output_text.verticalScrollBar()
         if scrollbar:
@@ -1029,10 +1172,12 @@ class ReviewPage(Base, QWidget):
         """重置全部：清空整个审校会话。"""
         self.review_items = []
         self.reviewed_count = 0
-        self.output_lines = []
+        self.output_entries = []
         self.output_text.clear()
         self.history_entries = []
         self.undo_stack = []
+        self.failed_item_ids = set()
+        self.auto_retry_count = 0
         self.refresh_history_list()
         self.clear_stats()
         self.update_buttons()
@@ -1056,6 +1201,13 @@ class ReviewPage(Base, QWidget):
         self.refresh_history_list()
         self.update_history_buttons()
 
+    @staticmethod
+    def truncate_preview(text: str, max_len: int) -> str:
+        """将文本截断到指定长度，超出部分用省略号替代。"""
+        if len(text) > max_len:
+            return text[:max_len] + "…"
+        return text
+
     def refresh_history_list(self) -> None:
         """根据当前 history_entries 刷新历史列表控件。"""
         self.history_list.clear()
@@ -1064,16 +1216,15 @@ class ReviewPage(Base, QWidget):
             return
 
         for entry in self.history_entries:
-            # 格式：[verdict] src → corrected
-            src_preview = entry.src[:40] + "…" if len(entry.src) > 40 else entry.src
+            # FIX 结果显示 old → new 对比；其他仅显示译文摘要
             if entry.verdict == "FIX" and entry.corrected:
-                label = f"[{entry.verdict}] {src_preview}"
+                old_preview = self.truncate_preview(entry.original_dst, 30)
+                new_preview = self.truncate_preview(entry.corrected, 30)
+                label = f"[{entry.verdict}] {old_preview} → {new_preview}"
             else:
-                label = f"[{entry.verdict}] {src_preview}"
+                dst_preview = self.truncate_preview(entry.original_dst, 40)
+                label = f"[{entry.verdict}] {dst_preview}"
             self.history_list.addItem(label)
-
-        # 选中最后一条
-        self.history_list.setCurrentRow(self.history_list.count() - 1)
 
     def update_history_buttons(self) -> None:
         """更新历史面板按钮可用性。"""
@@ -1201,6 +1352,17 @@ class ReviewPage(Base, QWidget):
             self.awaiting_approval = False
             self.update_buttons()
             final_status = data.get("final_status", "")
+
+            # 自动重试失败行
+            if final_status == "SUCCESS" and self.failed_item_ids:
+                config = Config().load()
+                if config.review_auto_retry_failed:
+                    max_retries = config.max_round or AUTO_RETRY_DEFAULT_LIMIT
+                    if self.auto_retry_count < max_retries:
+                        self.auto_retry_count += 1
+                        self.auto_retry_failed_items()
+                        return
+
             if final_status == "SUCCESS":
                 self.emit(
                     Base.Event.TOAST,
@@ -1261,14 +1423,20 @@ class ReviewPage(Base, QWidget):
                 self.awaiting_result_line = line
                 self.update_buttons()
                 # 空行分隔已完成日志和待批项，使其视觉上更突出
-                output = "\n".join(self.output_lines + ["", line])
+                output = self.build_filtered_output() + "\n\n" + line
             else:
-                self.output_lines.append(line)
-                output = "\n".join(self.output_lines)
+                verdict = result_data.get("verdict", "")
+                self.output_entries.append((verdict, line))
+                output = self.build_filtered_output()
+
+                # 跟踪失败行（用于自动重试）
+                if verdict in ("FAIL", "ERROR"):
+                    item_id = result_data.get("item_id", 0)
+                    if item_id:
+                        self.failed_item_ids.add(item_id)
 
                 # 已批准的 FIX/PASS 结果加入历史面板
                 approved = data.get("approved", False)
-                verdict = result_data.get("verdict", "")
                 if approved and verdict in ("FIX", "PASS"):
                     entry = ReviewHistoryEntry(
                         item_id=result_data.get("item_id", 0),
@@ -1280,10 +1448,6 @@ class ReviewPage(Base, QWidget):
                     )
                     self.add_history_entry(entry)
             self.output_text.setPlainText(output)
-            # 滚动到底部
-            scrollbar = self.output_text.verticalScrollBar()
-            if scrollbar:
-                scrollbar.setValue(scrollbar.maximum())
         else:
             # 回退：仅显示进度行
             progress_text = (
@@ -1346,13 +1510,13 @@ class ReviewPage(Base, QWidget):
         loc = Localizer.get()
         answer = inquiry_response.get("answer", "")
         a_line = loc.review_page_inquiry_answer.replace("{TEXT}", answer)
-        self.output_lines.append(a_line)
-        self.output_lines.append("")
+        self.output_entries.append(("", a_line))
+        self.output_entries.append(("", ""))
 
         if self.awaiting_approval and self.awaiting_result_line:
-            output = "\n".join(self.output_lines + ["", self.awaiting_result_line])
+            output = self.build_filtered_output() + "\n\n" + self.awaiting_result_line
         else:
-            output = "\n".join(self.output_lines)
+            output = self.build_filtered_output()
         self.output_text.setPlainText(output)
         scrollbar = self.output_text.verticalScrollBar()
         if scrollbar:
@@ -1383,9 +1547,11 @@ class ReviewPage(Base, QWidget):
         self.starting_line_index = 0
         self.review_items = []
         self.reviewed_count = 0
-        self.output_lines = []
+        self.output_entries = []
         self.history_entries = []
         self.undo_stack = []
+        self.failed_item_ids = set()
+        self.auto_retry_count = 0
         self.refresh_history_list()
         self.update_file_button_text()
         self.update_starting_line_button_text()
@@ -1431,14 +1597,15 @@ class ReviewPage(Base, QWidget):
         can_approve = is_reviewing and not is_stopping and self.awaiting_approval
         self.approve_action.setEnabled(can_approve)
         self.skip_action.setEnabled(can_approve)
-        self.deny_button.setEnabled(can_approve)
-        self.retry_button.setEnabled(can_approve)
+        self.deny_action.setEnabled(can_approve)
+        self.retry_action.setEnabled(can_approve)
         self.ask_ai_button.setEnabled(is_reviewing and not is_stopping)
 
         # 审校过程中禁用设置
         self.scope_combo.setEnabled(not is_busy)
         self.file_select_button.setEnabled(not is_busy)
         self.starting_line_button.setEnabled(not is_busy)
+        self.auto_retry_switch.setEnabled(not is_busy)
         self.capture_switch.setEnabled(not is_busy)
         self.capture_mode_combo.setEnabled(not is_busy)
         self.capture_window_edit.setEnabled(not is_busy)
