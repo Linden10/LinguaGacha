@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import Action
 from qfluentwidgets import ComboBox
 from qfluentwidgets import FluentWindow
+from qfluentwidgets import SingleDirectionScrollArea
 from qfluentwidgets import ListWidget
 from qfluentwidgets import MenuAnimationType
 from qfluentwidgets import MessageBox
@@ -123,11 +124,26 @@ class ReviewPage(Base, QWidget):
         self.container.setSpacing(8)
         self.container.setContentsMargins(24, 24, 24, 24)
 
-        # 添加控件
-        self.add_widget_head(self.container, config)
-        self.add_widget_output(self.container)
-        self.add_widget_scope(self.container, config)
-        self.add_widget_capture(self.container, config)
+        # 滚动区域：head / output / scope / capture 放入滚动容器，避免 Game Capture 展开时挤压输出区
+        scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(scroll_content)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setSpacing(8)
+
+        scroll_area = SingleDirectionScrollArea(orient=Qt.Orientation.Vertical)
+        scroll_area.setWidget(scroll_content)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.enableTransparentBackground()
+        self.container.addWidget(scroll_area, 1)
+
+        # 添加控件到滚动区域
+        self.add_widget_head(self.scroll_layout, config)
+        self.add_widget_output(self.scroll_layout)
+        self.add_widget_scope(self.scroll_layout, config)
+        self.add_widget_capture(self.scroll_layout, config)
+        self.scroll_layout.addStretch(1)
+
+        # 底部工具栏固定在滚动区域外
         self.add_widget_foot(self.container, config)
 
         # 订阅事件
