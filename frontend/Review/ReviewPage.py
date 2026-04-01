@@ -589,7 +589,7 @@ class ReviewPage(Base, QWidget):
         匹配引擎提示词要求的格式 "dst: <corrected translation>"。
         """
         results: list[str] = []
-        for match in re.finditer(r"(?:^|\n)\s*dst:\s*(.+)", answer):
+        for match in re.finditer(r"^\s*dst:\s*(.+)", answer, re.MULTILINE):
             value = match.group(1).strip()
             if value:
                 results.append(value)
