@@ -63,6 +63,23 @@ SCOPE_FILE: int = 1
 SCOPE_FAILED: int = 2
 LINE_PREVIEW_MAX_LENGTH: int = 60
 
+# 输出过滤索引
+FILTER_ALL: int = 0
+FILTER_PASS: int = 1
+FILTER_FIX: int = 2
+FILTER_FAIL: int = 3
+FILTER_ERROR: int = 4
+
+FILTER_INDEX_TO_VERDICT: dict[int, str] = {
+    FILTER_PASS: "PASS",
+    FILTER_FIX: "FIX",
+    FILTER_FAIL: "FAIL",
+    FILTER_ERROR: "ERROR",
+}
+
+# 自动重试默认上限（当 config.max_round <= 0 时的兜底）
+AUTO_RETRY_DEFAULT_LIMIT: int = 3
+
 
 class ReviewPage(Base, QWidget):
     """AI 审校页面。
@@ -494,12 +511,11 @@ class ReviewPage(Base, QWidget):
     def build_filtered_output(self) -> str:
         """根据当前过滤条件，从 output_entries 构建显示文本。"""
         filter_index = self.output_filter_combo.currentIndex()
-        if filter_index == 0:
+        if filter_index == FILTER_ALL:
             # 全部：显示所有条目
             return "\n".join(text for _, text in self.output_entries)
 
-        verdict_map = {1: "PASS", 2: "FIX", 3: "FAIL", 4: "ERROR"}
-        target_verdict = verdict_map.get(filter_index, "")
+        target_verdict = FILTER_INDEX_TO_VERDICT.get(filter_index, "")
 
         filtered = [text for v, text in self.output_entries if v == target_verdict]
         return "\n".join(filtered)
@@ -1163,6 +1179,13 @@ class ReviewPage(Base, QWidget):
         self.refresh_history_list()
         self.update_history_buttons()
 
+    @staticmethod
+    def truncate_preview(text: str, max_len: int) -> str:
+        """将文本截断到指定长度，超出部分用省略号替代。"""
+        if len(text) > max_len:
+            return text[:max_len] + "…"
+        return text
+
     def refresh_history_list(self) -> None:
         """根据当前 history_entries 刷新历史列表控件。"""
         self.history_list.clear()
@@ -1173,23 +1196,11 @@ class ReviewPage(Base, QWidget):
         for entry in self.history_entries:
             # FIX 结果显示 old → new 对比；其他仅显示译文摘要
             if entry.verdict == "FIX" and entry.corrected:
-                old_preview = (
-                    entry.original_dst[:30] + "…"
-                    if len(entry.original_dst) > 30
-                    else entry.original_dst
-                )
-                new_preview = (
-                    entry.corrected[:30] + "…"
-                    if len(entry.corrected) > 30
-                    else entry.corrected
-                )
+                old_preview = self.truncate_preview(entry.original_dst, 30)
+                new_preview = self.truncate_preview(entry.corrected, 30)
                 label = f"[{entry.verdict}] {old_preview} → {new_preview}"
             else:
-                dst_preview = (
-                    entry.original_dst[:40] + "…"
-                    if len(entry.original_dst) > 40
-                    else entry.original_dst
-                )
+                dst_preview = self.truncate_preview(entry.original_dst, 40)
                 label = f"[{entry.verdict}] {dst_preview}"
             self.history_list.addItem(label)
 
@@ -1324,7 +1335,7 @@ class ReviewPage(Base, QWidget):
             if final_status == "SUCCESS" and self.failed_item_ids:
                 config = Config().load()
                 if config.review_auto_retry_failed:
-                    max_retries = config.max_round or 3
+                    max_retries = config.max_round or AUTO_RETRY_DEFAULT_LIMIT
                     if self.auto_retry_count < max_retries:
                         self.auto_retry_count += 1
                         self.auto_retry_failed_items()
@@ -1390,9 +1401,7 @@ class ReviewPage(Base, QWidget):
                 self.awaiting_result_line = line
                 self.update_buttons()
                 # 空行分隔已完成日志和待批项，使其视觉上更突出
-                output = (
-                    self.build_filtered_output() + "\n\n" + line
-                )
+                output = self.build_filtered_output() + "\n\n" + line
             else:
                 verdict = result_data.get("verdict", "")
                 self.output_entries.append((verdict, line))
