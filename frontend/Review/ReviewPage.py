@@ -807,23 +807,29 @@ class ReviewPage(Base, QWidget):
         )
         self.skip_action.setEnabled(False)
 
+        self.deny_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_DENY,
+                Localizer.get().review_page_deny,
+                self.command_bar,
+                triggered=self.on_deny,
+            )
+        )
+        self.deny_action.setEnabled(False)
+
+        self.retry_action = self.command_bar.add_action(
+            Action(
+                ICON_ACTION_RETRY,
+                Localizer.get().review_page_retry,
+                self.command_bar,
+                triggered=self.on_retry,
+            )
+        )
+        self.retry_action.setEnabled(False)
+
         self.command_bar.add_stretch(1)
 
-        # Deny / Retry / Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
-        self.deny_button = PushButton(
-            ICON_ACTION_DENY, Localizer.get().review_page_deny
-        )
-        self.deny_button.setEnabled(False)
-        self.deny_button.clicked.connect(self.on_deny)
-        self.command_bar.add_widget(self.deny_button)
-
-        self.retry_button = PushButton(
-            ICON_ACTION_RETRY, Localizer.get().review_page_retry
-        )
-        self.retry_button.setEnabled(False)
-        self.retry_button.clicked.connect(self.on_retry)
-        self.command_bar.add_widget(self.retry_button)
-
+        # Ask AI 独立按钮：放在 CommandBar 之外，避免被自动溢出隐藏到 "..." 菜单
         self.ask_ai_button = PushButton(
             ICON_ACTION_ASK, Localizer.get().review_page_ask_ai
         )
@@ -1591,8 +1597,8 @@ class ReviewPage(Base, QWidget):
         can_approve = is_reviewing and not is_stopping and self.awaiting_approval
         self.approve_action.setEnabled(can_approve)
         self.skip_action.setEnabled(can_approve)
-        self.deny_button.setEnabled(can_approve)
-        self.retry_button.setEnabled(can_approve)
+        self.deny_action.setEnabled(can_approve)
+        self.retry_action.setEnabled(can_approve)
         self.ask_ai_button.setEnabled(is_reviewing and not is_stopping)
 
         # 审校过程中禁用设置

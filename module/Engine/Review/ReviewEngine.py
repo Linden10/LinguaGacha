@@ -325,16 +325,22 @@ class ReviewEngine(Base):
                     # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
                     skipped = decision == self.DECISION_SKIP
 
+                    # Deny 视为拒绝 AI 判定，按 FAIL 统计并展示
+                    denied = decision == self.DECISION_DENY
+
+                    # 统计用 verdict：deny 时覆盖为 FAIL，其余使用 AI 原始判定
+                    effective_verdict = ReviewVerdict.FAIL if denied else result.verdict
+
                     # 汇总结果
                     with self.lock:
                         self.results.append(result)
 
                     reviewed += 1
-                    if skipped or result.verdict == ReviewVerdict.PASS:
+                    if skipped or effective_verdict == ReviewVerdict.PASS:
                         pass_count += 1
-                    elif result.verdict == ReviewVerdict.FIX:
+                    elif effective_verdict == ReviewVerdict.FIX:
                         fix_count += 1
-                    elif result.verdict == ReviewVerdict.FAIL:
+                    elif effective_verdict == ReviewVerdict.FAIL:
                         fail_count += 1
                     else:
                         error_count += 1
@@ -362,7 +368,7 @@ class ReviewEngine(Base):
                             "error_line": error_count,
                             "result": {
                                 "item_id": result.item_id,
-                                "verdict": str(result.verdict),
+                                "verdict": str(effective_verdict),
                                 "corrected": result.corrected,
                                 "reason": result.reason,
                                 "original_dst": result.original_dst,
