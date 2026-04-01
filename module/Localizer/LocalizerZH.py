@@ -921,4 +921,5 @@ class LocalizerZH:
     review_page_auto_retry_failed: str = "自动重试失败行"
     review_page_auto_retry_failed_desc: str = "审校完成后自动重试失败行，最多重试次数由重试上限决定"
     review_page_auto_retry_started: str = "正在自动重试 {COUNT} 个失败行 …"
+    review_page_dst_option: str = "选项 {INDEX}: {TEXT}"
     glossary_review_stop: str = "停止审校"
