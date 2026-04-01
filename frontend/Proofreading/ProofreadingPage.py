@@ -196,6 +196,8 @@ class ProofreadingPage(Base, QWidget):
         self.subscribe(Base.Event.PROJECT_FILE_UPDATE, self.on_project_file_update)
         self.subscribe(Base.Event.QUALITY_RULE_UPDATE, self.on_quality_rule_update)
         self.subscribe(Base.Event.PROJECT_PREFILTER, self.on_project_prefilter_updated)
+        self.subscribe(Base.Event.REVIEW_TASK, self.on_review_task_changed)
+        self.subscribe(Base.Event.REVIEW_PROGRESS, self.on_review_item_updated)
 
         # 连接信号
         self.items_loaded.connect(self.on_items_loaded_ui)
@@ -2454,6 +2456,47 @@ class ProofreadingPage(Base, QWidget):
         self.check_engine_status()
         if sub_event in terminal_sub_events:
             self.schedule_reload("translation_reset")
+
+    def on_review_task_changed(self, event: Base.Event, data: dict) -> None:
+        """审校任务完成后标记数据为脏并触发重载。"""
+        del event
+        sub_event = data.get("sub_event")
+        if sub_event in (Base.SubEvent.DONE, Base.SubEvent.ERROR):
+            self.mark_data_stale()
+            self.schedule_reload("review_done")
+
+    def on_review_item_updated(self, event: Base.Event, data: dict) -> None:
+        """审校逐行进度：当 FIX 被批准后实时刷新对应表格行。"""
+        del event
+        if data.get("awaiting_approval"):
+            return
+        result = data.get("result")
+        if not result:
+            return
+        approved = data.get("approved", False)
+        verdict = result.get("verdict", "")
+        if not (approved and verdict == "FIX"):
+            return
+
+        item_id = result.get("item_id", 0)
+        if not item_id:
+            return
+
+        # 在当前显示的条目中查找并刷新
+        for item in self.items:
+            if (item.id or 0) == item_id:
+                row = self.table_widget.find_row_by_item(item)
+                if row >= 0:
+                    self.table_widget.update_row_dst(row)
+                # 如果是当前编辑中的条目，也刷新编辑面板
+                if self.current_item is item:
+                    warnings = ProofreadingDomain.get_item_warnings(
+                        item, self.warning_map
+                    )
+                    index = self.current_row_index + 1
+                    self.edit_panel.bind_item(item, index, warnings)
+                    self.edit_panel.set_readonly(self.is_readonly)
+                break
 
     def on_project_loaded(self, event: Base.Event, data: dict) -> None:
         """工程加载后自动同步数据"""

@@ -42,6 +42,7 @@ ICON_MENU_DELETE: BaseIcon = BaseIcon.TRASH_2  # 右键菜单：删除条目
 ICON_MENU_ENABLE: BaseIcon = BaseIcon.CHECK  # 右键菜单：启用
 ICON_MENU_DISABLE: BaseIcon = BaseIcon.X  # 右键菜单：禁用
 ICON_AI_REVIEW: BaseIcon = BaseIcon.SPARKLES  # 命令栏：AI 审校
+ICON_AI_REVIEW_STOP: BaseIcon = BaseIcon.CIRCLE_STOP  # 命令栏：停止审校
 
 
 class GlossaryPage(QualityRulePageBase):
@@ -64,6 +65,7 @@ class GlossaryPage(QualityRulePageBase):
 
         self.window_ref = window
         self.pending_review_results: list[GlossaryReviewResult] = []
+        self.is_glossary_reviewing: bool = False
 
         self.rule_icon_renderer = QualityRuleIconRenderer(
             icon_size=self.CASE_ICON_SIZE,
@@ -370,22 +372,31 @@ class GlossaryPage(QualityRulePageBase):
         self.ai_review_button = widget
 
     def show_ai_review_menu(self, anchor: QWidget) -> None:
-        """显示 AI 审校下拉菜单。"""
+        """显示 AI 审校下拉菜单。审校进行中时显示停止选项。"""
         menu = RoundMenu("", self)
-        menu.addAction(
-            Action(
-                ICON_AI_REVIEW,
-                Localizer.get().glossary_review_all,
-                triggered=self.on_review_all,
+        if self.is_glossary_reviewing:
+            menu.addAction(
+                Action(
+                    ICON_AI_REVIEW_STOP,
+                    Localizer.get().glossary_review_stop,
+                    triggered=self.on_stop_glossary_review,
+                )
             )
-        )
-        menu.addAction(
-            Action(
-                ICON_AI_REVIEW,
-                Localizer.get().glossary_review_selected,
-                triggered=self.on_review_selected,
+        else:
+            menu.addAction(
+                Action(
+                    ICON_AI_REVIEW,
+                    Localizer.get().glossary_review_all,
+                    triggered=self.on_review_all,
+                )
             )
-        )
+            menu.addAction(
+                Action(
+                    ICON_AI_REVIEW,
+                    Localizer.get().glossary_review_selected,
+                    triggered=self.on_review_selected,
+                )
+            )
         global_pos = anchor.mapToGlobal(QPoint(0, 0))
         menu.exec(global_pos, ani=True, aniType=MenuAnimationType.PULL_UP)
 
@@ -440,14 +451,24 @@ class GlossaryPage(QualityRulePageBase):
             },
         )
 
+    def on_stop_glossary_review(self) -> None:
+        """停止当前术语表审校。"""
+        self.emit(
+            Base.Event.GLOSSARY_REVIEW_REQUEST_STOP,
+            {"sub_event": Base.SubEvent.REQUEST},
+        )
+
     # ==================== 术语表审校事件处理 ====================
 
     def on_glossary_review_task(self, event: Base.Event, data: dict) -> None:
         """响应术语表审校任务生命周期事件。"""
         sub_event = data.get("sub_event")
-        if sub_event in (Base.SubEvent.DONE, Base.SubEvent.ERROR):
-            final_status = data.get("final_status", "")
-            if final_status == "SUCCESS" and self.pending_review_results:
+        if sub_event == Base.SubEvent.RUN:
+            self.is_glossary_reviewing = True
+        elif sub_event in (Base.SubEvent.DONE, Base.SubEvent.ERROR):
+            self.is_glossary_reviewing = False
+            # SUCCESS 和 STOPPED 都展示已收集的结果
+            if self.pending_review_results:
                 self.show_review_results_dialog()
 
     def on_glossary_review_progress(self, event: Base.Event, data: dict) -> None:
