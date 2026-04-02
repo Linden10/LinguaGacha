@@ -103,6 +103,7 @@ class Config:
     review_export_report_path: str = ""  # 审校报告导出路径，空表示应用根目录
     review_rate_limit: int = 0  # 审校 API 调用频率限制（每分钟），0 为不限制
     review_auto_retry_failed: bool = False  # 审校完成后自动重试失败行
+    review_auto_delay: float = 0.0  # 自动审批模式下每行之间的延迟（秒），0 为不延迟
 
     # ReviewPage — 术语表审校
     glossary_review_approval_mode: str = ReviewApprovalMode.MANUAL

@@ -860,6 +860,7 @@ class LocalizerZH:
     review_page_deny: str = "拒绝"
     review_page_retry: str = "重试"
     review_page_pause: str = "暂停"
+    review_page_auto_delay: str = "延迟（秒）"
     review_page_ask_ai: str = "询问 AI"
     review_page_starting_line: str = "起始行"
     review_page_starting_line_desc: str = "选择从哪一行开始审校"

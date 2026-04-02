@@ -860,6 +860,7 @@ class LocalizerEN(LocalizerZH):
     review_page_deny: str = "Deny"
     review_page_retry: str = "Retry"
     review_page_pause: str = "Pause"
+    review_page_auto_delay: str = "Delay (s)"
     review_page_ask_ai: str = "Ask AI"
     review_page_starting_line: str = "Starting Line"
     review_page_starting_line_desc: str = "Select which line to start reviewing from"

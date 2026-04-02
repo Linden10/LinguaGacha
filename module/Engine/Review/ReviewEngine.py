@@ -208,8 +208,6 @@ class ReviewEngine(Base):
             if max_retries <= 0:
                 max_retries = self.AUTO_RETRY_LIMIT
 
-            approval_mode = config.review_approval_mode
-
             # 从模型配置中取并发上限（与翻译页共用同一设置）
             max_workers, _, _ = TaskRunnerLifecycle.build_task_limits(model)
 
@@ -243,6 +241,11 @@ class ReviewEngine(Base):
                     if self.should_stop():
                         final_status = "STOPPED"
                         break
+
+                    # 每次迭代重新读取可在审校过程中实时变更的设置
+                    live_config = Config().load()
+                    approval_mode = live_config.review_approval_mode
+                    auto_delay = live_config.review_auto_delay
 
                     item = items[i]
 
@@ -394,6 +397,17 @@ class ReviewEngine(Base):
                             "approved": decision == self.DECISION_APPROVE,
                         },
                     )
+
+                    # 自动审批模式下，在行间插入用户配置的延迟
+                    if (
+                        auto_delay > 0
+                        and approval_mode != Config.ReviewApprovalMode.MANUAL
+                    ):
+                        remaining = auto_delay
+                        while remaining > 0 and not self.should_stop():
+                            step = min(remaining, 0.5)
+                            time.sleep(step)
+                            remaining -= step
 
                     i += 1
                 else:

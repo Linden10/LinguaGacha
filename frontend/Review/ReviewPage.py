@@ -19,6 +19,7 @@ from qfluentwidgets import PlainTextEdit
 from qfluentwidgets import ProgressRing
 from qfluentwidgets import PushButton
 from qfluentwidgets import RoundMenu
+from qfluentwidgets import SpinBox
 from qfluentwidgets import SwitchButton
 from qfluentwidgets import ToolTipFilter
 from qfluentwidgets import ToolTipPosition
@@ -311,6 +312,15 @@ class ReviewPage(Base, QWidget):
         self.approval_mode_combo.setMinimumWidth(160)
         filter_hbox.addWidget(self.approval_mode_combo)
 
+        # 自动审批模式下行间延迟（秒）
+        self.auto_delay_spin = SpinBox(self)
+        self.auto_delay_spin.setRange(0, 60)
+        self.auto_delay_spin.setValue(int(config.review_auto_delay))
+        self.auto_delay_spin.setSuffix(f"  {loc.review_page_auto_delay}")
+        self.auto_delay_spin.valueChanged.connect(self.on_auto_delay_changed)
+        self.auto_delay_spin.setMinimumWidth(140)
+        filter_hbox.addWidget(self.auto_delay_spin)
+
         parent.addWidget(filter_bar)
 
         # 水平容器：输出区 + 历史面板
@@ -590,7 +600,7 @@ class ReviewPage(Base, QWidget):
         self.refresh_output_display()
 
     def on_approval_mode_changed(self, index: int) -> None:
-        """审批模式切换，保存到配置。"""
+        """审批模式切换，保存到配置。审校过程中实时生效。"""
         reverse_map = {
             0: Config.ReviewApprovalMode.MANUAL,
             1: Config.ReviewApprovalMode.AUTO_ACCEPT,
@@ -600,6 +610,12 @@ class ReviewPage(Base, QWidget):
         config.review_approval_mode = reverse_map.get(
             index, Config.ReviewApprovalMode.MANUAL
         )
+        config.save()
+
+    def on_auto_delay_changed(self, value: int) -> None:
+        """行间延迟变更，保存到配置。审校过程中实时生效。"""
+        config = Config().load()
+        config.review_auto_delay = float(value)
         config.save()
 
     def build_filtered_output(self) -> str:
