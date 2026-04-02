@@ -19,6 +19,7 @@ from qfluentwidgets import PlainTextEdit
 from qfluentwidgets import ProgressRing
 from qfluentwidgets import PushButton
 from qfluentwidgets import RoundMenu
+from qfluentwidgets import SpinBox
 from qfluentwidgets import SwitchButton
 from qfluentwidgets import ToolTipFilter
 from qfluentwidgets import ToolTipPosition
@@ -147,7 +148,7 @@ class ReviewPage(Base, QWidget):
 
         # 添加控件到滚动区域
         self.add_widget_head(self.scroll_layout, config)
-        self.add_widget_output(self.scroll_layout)
+        self.add_widget_output(self.scroll_layout, config)
         self.add_widget_scope(self.scroll_layout, config)
         self.add_widget_capture(self.scroll_layout, config)
         self.scroll_layout.addStretch(1)
@@ -162,6 +163,11 @@ class ReviewPage(Base, QWidget):
         self.subscribe(Base.Event.PROJECT_LOADED, self.on_project_loaded)
         self.subscribe(Base.Event.PROJECT_UNLOADED, self.on_project_unloaded)
         self.subscribe_busy_state_events(self.on_engine_status_changed)
+
+        # 实时任务数更新定时器
+        self.task_update_timer = QTimer(self)
+        self.task_update_timer.timeout.connect(self.update_task_card)
+        self.task_update_timer.start(250)
 
         # 初始化按钮状态
         self.on_engine_status_changed(
@@ -232,13 +238,29 @@ class ReviewPage(Base, QWidget):
         head_hbox.addWidget(self.fix_card)
         head_hbox.addWidget(self.fail_card)
         head_hbox.addWidget(self.error_card)
+
+        # 实时任务数卡片
+        self.task_card = DashboardCard(
+            parent=self,
+            title=Localizer.get().translation_page_card_task,
+            value="0",
+            unit="Task",
+        )
+        self.task_card.setFixedSize(140, 140)
+        head_hbox.addWidget(self.task_card)
+
         head_hbox.addStretch(1)
 
         parent.addWidget(head_container)
 
+    def update_task_card(self) -> None:
+        """更新实时任务数卡片。"""
+        task = Engine.get().get_request_in_flight_count()
+        self.task_card.set_value(str(task))
+
     # ==================== 输出窗口 + 历史面板 ====================
 
-    def add_widget_output(self, parent: QVBoxLayout) -> None:
+    def add_widget_output(self, parent: QVBoxLayout, config: Config) -> None:
         """添加 AI 输出展示区域（左）和可折叠历史面板（右），以及询问输入框。"""
 
         # 输出日志过滤栏
@@ -264,7 +286,41 @@ class ReviewPage(Base, QWidget):
         )
         self.output_filter_combo.setMinimumWidth(120)
         filter_hbox.addWidget(self.output_filter_combo)
+
         filter_hbox.addStretch(1)
+
+        # 审批模式选择器（从专家设置移至此处，便于快速切换）
+        self.approval_mode_combo = ComboBox(self)
+        self.approval_mode_combo.addItems(
+            [
+                loc.review_page_approval_manual,
+                loc.review_page_approval_auto,
+                loc.review_page_approval_auto_skip,
+            ]
+        )
+        mode_map = {
+            Config.ReviewApprovalMode.MANUAL: 0,
+            Config.ReviewApprovalMode.AUTO_ACCEPT: 1,
+            Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL: 2,
+        }
+        self.approval_mode_combo.setCurrentIndex(
+            mode_map.get(config.review_approval_mode, 0)
+        )
+        self.approval_mode_combo.currentIndexChanged.connect(
+            self.on_approval_mode_changed
+        )
+        self.approval_mode_combo.setMinimumWidth(160)
+        filter_hbox.addWidget(self.approval_mode_combo)
+
+        # 自动审批模式下行间延迟（秒）
+        self.auto_delay_spin = SpinBox(self)
+        self.auto_delay_spin.setRange(0, 60)
+        self.auto_delay_spin.setValue(int(config.review_auto_delay))
+        self.auto_delay_spin.setSuffix(f"  {loc.review_page_auto_delay}")
+        self.auto_delay_spin.valueChanged.connect(self.on_auto_delay_changed)
+        self.auto_delay_spin.setMinimumWidth(140)
+        filter_hbox.addWidget(self.auto_delay_spin)
+
         parent.addWidget(filter_bar)
 
         # 水平容器：输出区 + 历史面板
@@ -542,6 +598,25 @@ class ReviewPage(Base, QWidget):
     def on_output_filter_changed(self, index: int) -> None:
         """输出日志过滤条件变更，重建显示内容。"""
         self.refresh_output_display()
+
+    def on_approval_mode_changed(self, index: int) -> None:
+        """审批模式切换，保存到配置。审校过程中实时生效。"""
+        reverse_map = {
+            0: Config.ReviewApprovalMode.MANUAL,
+            1: Config.ReviewApprovalMode.AUTO_ACCEPT,
+            2: Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL,
+        }
+        config = Config().load()
+        config.review_approval_mode = reverse_map.get(
+            index, Config.ReviewApprovalMode.MANUAL
+        )
+        config.save()
+
+    def on_auto_delay_changed(self, value: int) -> None:
+        """行间延迟变更，保存到配置。审校过程中实时生效。"""
+        config = Config().load()
+        config.review_auto_delay = float(value)
+        config.save()
 
     def build_filtered_output(self) -> str:
         """根据当前过滤条件，从 output_entries 构建显示文本。"""

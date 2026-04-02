@@ -208,8 +208,6 @@ class ReviewEngine(Base):
             if max_retries <= 0:
                 max_retries = self.AUTO_RETRY_LIMIT
 
-            approval_mode = config.review_approval_mode
-
             # 从模型配置中取并发上限（与翻译页共用同一设置）
             max_workers, _, _ = TaskRunnerLifecycle.build_task_limits(model)
 
@@ -244,6 +242,11 @@ class ReviewEngine(Base):
                         final_status = "STOPPED"
                         break
 
+                    # 每次迭代重新读取可在审校过程中实时变更的设置
+                    live_config = Config().load()
+                    approval_mode = live_config.review_approval_mode
+                    auto_delay = live_config.review_auto_delay
+
                     item = items[i]
 
                     # 收集上文（利用 context_items 提供的前文）
@@ -270,12 +273,28 @@ class ReviewEngine(Base):
                                 config.review_capture_window
                             )
 
+                    # 提交后续条目的预取请求（所有审批模式均预取，实现并发审校）
+                    self.submit_prefetch_batch(
+                        executor=executor,
+                        cache=prefetch_cache,
+                        items=items,
+                        all_items=all_items,
+                        offset=offset,
+                        start_index=i + 1,
+                        max_prefetch=max(1, max_workers),
+                        config=config,
+                        model=model,
+                        quality_snapshot=quality_snapshot,
+                        max_retries=max_retries,
+                    )
+
                     # 尝试使用预取结果；未命中则同步执行
                     result: ReviewResult | None = None
                     future = prefetch_cache.pop(i, None)
                     if future is not None:
                         try:
-                            result = future.result(timeout=0)
+                            # 阻塞等待预取完成，线程池中其他预取任务同时运行
+                            result = future.result()
                         except Exception as e:
                             # 预取失败，回退到同步执行
                             LogManager.get().debug(
@@ -301,25 +320,6 @@ class ReviewEngine(Base):
                         self.current_model = model
                         self.current_item = item
                         self.current_precedings = precedings
-
-                    # 根据审批模式决定是否需要等待用户操作
-                    needs_wait = self.check_needs_manual_approval(approval_mode, result)
-
-                    # 在等待用户审批前，提交后续条目的预取请求
-                    if needs_wait:
-                        self.submit_prefetch_batch(
-                            executor=executor,
-                            cache=prefetch_cache,
-                            items=items,
-                            all_items=all_items,
-                            offset=offset,
-                            start_index=i + 1,
-                            max_prefetch=max(1, max_workers - 1),
-                            config=config,
-                            model=model,
-                            quality_snapshot=quality_snapshot,
-                            max_retries=max_retries,
-                        )
 
                     decision = self.resolve_approval(
                         approval_mode,
@@ -398,6 +398,17 @@ class ReviewEngine(Base):
                         },
                     )
 
+                    # 自动审批模式下，在行间插入用户配置的延迟
+                    if (
+                        auto_delay > 0
+                        and approval_mode != Config.ReviewApprovalMode.MANUAL
+                    ):
+                        remaining = auto_delay
+                        while remaining > 0 and not self.should_stop():
+                            step = min(remaining, 0.5)
+                            time.sleep(step)
+                            remaining -= step
+
                     i += 1
                 else:
                     final_status = "SUCCESS"
@@ -475,27 +486,6 @@ class ReviewEngine(Base):
         for future in cache.values():
             future.cancel()
         cache.clear()
-
-    def check_needs_manual_approval(
-        self,
-        approval_mode: str,
-        result: ReviewResult,
-    ) -> bool:
-        """判断当前结果是否需要用户手动审批（不消耗 pause_next 标记）。"""
-        if result.verdict in (ReviewVerdict.PASS, ReviewVerdict.ERROR):
-            return False
-
-        with self.lock:
-            if self.pause_next:
-                return True
-
-        if approval_mode == Config.ReviewApprovalMode.MANUAL:
-            return True
-        if approval_mode == Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL:
-            if result.verdict == ReviewVerdict.FAIL:
-                return True
-
-        return False
 
     # ==================== 审批决策 ====================
 
