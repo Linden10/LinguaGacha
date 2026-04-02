@@ -65,7 +65,6 @@ class ExpertSettingsPage(Base, QWidget):
         )
         self.add_widget_ffmpeg_path(scroll_area_vbox, config, window)
         self.add_widget_review_model(scroll_area_vbox, config, window)
-        self.add_widget_review_approval_mode(scroll_area_vbox, config, window)
         self.add_widget_review_preceding_lines(scroll_area_vbox, config, window)
         self.add_widget_review_timeout(scroll_area_vbox, config, window)
 
@@ -479,47 +478,6 @@ class ExpertSettingsPage(Base, QWidget):
         def on_changed(index: int) -> None:
             current_config = Config().load()
             current_config.review_model_id = combo.itemData(index) or ""
-            current_config.save()
-
-        combo.currentIndexChanged.connect(on_changed)
-        card.add_right_widget(combo)
-        parent.addWidget(card)
-
-    # AI 审校审批模式
-    def add_widget_review_approval_mode(
-        self, parent: QLayout, config: Config, window: FluentWindow
-    ) -> None:
-        card = SettingCard(
-            title=Localizer.get().expert_settings_page_review_approval_mode,
-            description=Localizer.get().expert_settings_page_review_approval_mode_desc,
-            parent=self,
-        )
-
-        combo = ComboBox(card)
-        combo.addItems(
-            [
-                Localizer.get().review_page_approval_manual,
-                Localizer.get().review_page_approval_auto,
-                Localizer.get().review_page_approval_auto_skip,
-            ]
-        )
-        mode_map = {
-            Config.ReviewApprovalMode.MANUAL: 0,
-            Config.ReviewApprovalMode.AUTO_ACCEPT: 1,
-            Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL: 2,
-        }
-        combo.setCurrentIndex(mode_map.get(config.review_approval_mode, 0))
-
-        def on_changed(index: int) -> None:
-            reverse_map = {
-                0: Config.ReviewApprovalMode.MANUAL,
-                1: Config.ReviewApprovalMode.AUTO_ACCEPT,
-                2: Config.ReviewApprovalMode.AUTO_PAUSE_ON_FAIL,
-            }
-            current_config = Config().load()
-            current_config.review_approval_mode = reverse_map.get(
-                index, Config.ReviewApprovalMode.MANUAL
-            )
             current_config.save()
 
         combo.currentIndexChanged.connect(on_changed)
