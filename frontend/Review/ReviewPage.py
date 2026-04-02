@@ -253,7 +253,7 @@ class ReviewPage(Base, QWidget):
         parent.addWidget(head_container)
 
     def update_task_card(self) -> None:
-        """更新实时任务数卡片，仅在审校进行时显示非零值。"""
+        """更新实时任务数卡片。"""
         task = Engine.get().get_request_in_flight_count()
         self.task_card.set_value(str(task))
 
