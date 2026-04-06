@@ -923,4 +923,6 @@ class LocalizerEN(LocalizerZH):
     review_page_auto_retry_failed_desc: str = "Automatically retry failed lines when review completes, up to the max retry limit"
     review_page_auto_retry_started: str = "Auto-retrying {COUNT} failed line(s) …"
     review_page_dst_option: str = "Option {INDEX}: {TEXT}"
+    review_page_restore_title: str = "Resume Review Session"
+    review_page_restore_prompt: str = "A previous review session was found ({REVIEWED}/{TOTAL} lines reviewed). Resume from where you left off?"
     glossary_review_stop: str = "Stop Review"
