@@ -226,7 +226,7 @@ class ProofreadingTableModel(QAbstractTableModel):
             self.display_dst_cache[key] = text
             return text
         if index.column() == self.COL_MODIFIED:
-            return self.format_modified_at(item.modified_at)
+            return self.format_modified_at(item.get_modified_at())
         return ""
 
     # ========== 文本展示工具 ==========

@@ -191,16 +191,21 @@ class ProofreadingTableWidget(TableView):
         return self.table_model.find_row_by_item(item)
 
     def update_row_dst(self, row: int) -> None:
-        """更新指定行的译文（通过 dataChanged 精准刷新）。"""
+        """更新指定行的译文和修改时间（通过 dataChanged 精准刷新）。"""
 
         # DisplayRole 的 compact 缓存依赖 dst 内容；dst 变更时需精确失效。
         self.table_model.invalidate_display_cache_by_row(row, dst=True)
-        index = self.table_model.index(row, self.COL_DST)
-        if not index.isValid():
-            return
-        self.table_model.dataChanged.emit(
-            index, index, [int(Qt.ItemDataRole.DisplayRole)]
-        )
+        dst_index = self.table_model.index(row, self.COL_DST)
+        if dst_index.isValid():
+            self.table_model.dataChanged.emit(
+                dst_index, dst_index, [int(Qt.ItemDataRole.DisplayRole)]
+            )
+        # 修改时间列一同刷新
+        mod_index = self.table_model.index(row, self.COL_MODIFIED)
+        if mod_index.isValid():
+            self.table_model.dataChanged.emit(
+                mod_index, mod_index, [int(Qt.ItemDataRole.DisplayRole)]
+            )
 
     def update_row_status(self, row: int, warnings: list[WarningType]) -> None:
         """更新指定行的状态/告警图标（通过更新 warning_map + dataChanged 刷新）。"""

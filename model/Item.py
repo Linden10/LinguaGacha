@@ -196,9 +196,7 @@ class Item:
                 self.dst = dst
             else:
                 self.dst = str(dst)
-            self.modified_at = datetime.now(timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%S"
-            )
+            self.modified_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
     # 获取角色姓名原文
     def get_name_src(self) -> str | list[str] | None:
@@ -289,6 +287,11 @@ class Item:
     def set_status(self, status: Base.ProjectStatus) -> None:
         with self.lock:
             self.status = status
+
+    # 获取修改时间
+    def get_modified_at(self) -> str:
+        with self.lock:
+            return self.modified_at
 
     # 获取重试次数
     def get_retry_count(self) -> int:
