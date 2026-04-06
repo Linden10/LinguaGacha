@@ -27,8 +27,9 @@ class ProofreadingTableModel(QAbstractTableModel):
     # ========== 列索引常量 ==========
     COL_SRC: int = 0
     COL_DST: int = 1
-    COL_STATUS: int = 2
-    COL_COUNT: int = 3
+    COL_MODIFIED: int = 2
+    COL_STATUS: int = 3
+    COL_COUNT: int = 4
 
     # ========== 自定义 roles ==========
     # Qt.UserRole 常量在 stubs 中可能缺失，这里直接使用其数值以保证类型检查通过。
@@ -141,6 +142,7 @@ class ProofreadingTableModel(QAbstractTableModel):
             headers = (
                 Localizer.get().table_col_source,
                 Localizer.get().table_col_translation,
+                Localizer.get().table_col_modified,
                 Localizer.get().proofreading_page_col_status,
             )
             if 0 <= section < len(headers):
@@ -181,7 +183,7 @@ class ProofreadingTableModel(QAbstractTableModel):
             if role == Qt.ItemDataRole.FontRole:
                 return self.ui_font
             if role == Qt.ItemDataRole.TextAlignmentRole:
-                if index.column() == self.COL_STATUS:
+                if index.column() in (self.COL_STATUS, self.COL_MODIFIED):
                     return Qt.AlignmentFlag.AlignCenter
                 return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
             return None
@@ -200,7 +202,7 @@ class ProofreadingTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.FontRole:
             return self.ui_font
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if index.column() == self.COL_STATUS:
+            if index.column() in (self.COL_STATUS, self.COL_MODIFIED):
                 return Qt.AlignmentFlag.AlignCenter
             return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
 
@@ -223,6 +225,8 @@ class ProofreadingTableModel(QAbstractTableModel):
             text = self.compact_multiline_text(item.get_dst())
             self.display_dst_cache[key] = text
             return text
+        if index.column() == self.COL_MODIFIED:
+            return self.format_modified_at(item.modified_at)
         return ""
 
     # ========== 文本展示工具 ==========
@@ -231,3 +235,11 @@ class ProofreadingTableModel(QAbstractTableModel):
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         parts = [part.strip() for part in normalized.split("\n") if part.strip()]
         return " ↲ ".join(parts)
+
+    @staticmethod
+    def format_modified_at(raw: str) -> str:
+        """将 ISO 8601 时间戳格式化为简短的日期时间显示。"""
+        if not raw:
+            return ""
+        # 取 YYYY-MM-DD HH:MM 部分展示
+        return raw.replace("T", " ")[:16]

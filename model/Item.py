@@ -1,6 +1,8 @@
 import dataclasses
 import re
 import threading
+from datetime import datetime
+from datetime import timezone
 from enum import StrEnum
 from functools import lru_cache
 from typing import Any
@@ -69,6 +71,7 @@ class Item:
     text_type: TextType = TextType.NONE  # 文本的实际类型
     status: Base.ProjectStatus = Base.ProjectStatus.NONE  # 翻译状态
     retry_count: int = 0  # 重试次数，当前只有单独重试的时候才增加此计数
+    modified_at: str = ""  # 最后修改时间（ISO 8601 格式，如 2025-01-01T12:00:00）
 
     # 线程锁
     lock: threading.Lock = dataclasses.field(
@@ -193,6 +196,9 @@ class Item:
                 self.dst = dst
             else:
                 self.dst = str(dst)
+            self.modified_at = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S"
+            )
 
     # 获取角色姓名原文
     def get_name_src(self) -> str | list[str] | None:

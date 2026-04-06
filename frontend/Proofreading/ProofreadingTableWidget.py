@@ -32,11 +32,13 @@ class ProofreadingTableWidget(TableView):
     # 列索引常量
     COL_SRC = ProofreadingTableModel.COL_SRC
     COL_DST = ProofreadingTableModel.COL_DST
+    COL_MODIFIED = ProofreadingTableModel.COL_MODIFIED
     COL_STATUS = ProofreadingTableModel.COL_STATUS
 
     # 布局常量
     FONT_SIZE = 12
     ROW_HEIGHT = 40
+    COL_MODIFIED_WIDTH = 140
     COL_STATUS_WIDTH = 60
     ROW_NUMBER_MIN_WIDTH = 40
 
@@ -103,6 +105,8 @@ class ProofreadingTableWidget(TableView):
         header = cast(QHeaderView, self.horizontalHeader())
         header.setSectionResizeMode(self.COL_SRC, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self.COL_DST, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_MODIFIED, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(self.COL_MODIFIED, self.COL_MODIFIED_WIDTH)
         header.setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.Fixed)
         self.setColumnWidth(self.COL_STATUS, self.COL_STATUS_WIDTH)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)

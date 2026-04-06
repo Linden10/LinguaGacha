@@ -1583,7 +1583,7 @@ class ReviewPage(Base, QWidget):
                 items = dm.get_all_items()
                 for item in items:
                     if (item.id or 0) == entry.item_id:
-                        item.dst = entry.original_dst
+                        item.set_dst(entry.original_dst)
                         dm.save_item(item)
                         break
         except Exception as e:
@@ -1618,7 +1618,7 @@ class ReviewPage(Base, QWidget):
                     items = dm.get_all_items()
                     for item in items:
                         if (item.id or 0) == entry.item_id:
-                            item.dst = entry.corrected
+                            item.set_dst(entry.corrected)
                             dm.save_item(item)
                             break
             except Exception as e:
