@@ -1180,8 +1180,15 @@ class ReviewPage(Base, QWidget):
         if not self.review_items or self.reviewed_count <= 0:
             return
 
+        # 仅保存有有效 ID 的条目
+        valid_ids = [
+            item.id for item in self.review_items if item.id is not None and item.id > 0
+        ]
+        if not valid_ids:
+            return
+
         state = ReviewSessionState(
-            item_ids=[item.id or 0 for item in self.review_items],
+            item_ids=valid_ids,
             reviewed_count=self.reviewed_count,
             pass_count=self.stat_pass,
             fix_count=self.stat_fix,
@@ -1214,11 +1221,15 @@ class ReviewPage(Base, QWidget):
         if state is None:
             return
 
-        # 通过 item_id 重建 review_items
+        # 通过 item_id 重建 review_items（跳过无效 ID）
         all_items = dm.get_all_items()
-        item_map: dict[int, Item] = {(item.id or 0): item for item in all_items}
+        item_map: dict[int, Item] = {
+            item.id: item for item in all_items if item.id is not None and item.id > 0
+        }
         restored_items: list[Item] = []
         for item_id in state.item_ids:
+            if item_id <= 0:
+                continue
             item = item_map.get(item_id)
             if item is not None:
                 restored_items.append(item)

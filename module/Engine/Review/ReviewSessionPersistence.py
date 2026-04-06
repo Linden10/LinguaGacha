@@ -52,6 +52,19 @@ class ReviewSessionState:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ReviewSessionState":
         """从字典反序列化。"""
+        raw_entries = data.get("output_entries", [])
+        valid_entries: list[tuple[str, str]] = []
+        skipped = 0
+        for e in raw_entries:
+            if isinstance(e, (list, tuple)) and len(e) == 2:
+                valid_entries.append(tuple(e))
+            else:
+                skipped += 1
+        if skipped > 0:
+            LogManager.get().warning(
+                f"Skipped {skipped} malformed output entries during review session restore"
+            )
+
         return cls(
             item_ids=data.get("item_ids", []),
             reviewed_count=data.get("reviewed_count", 0),
@@ -60,9 +73,7 @@ class ReviewSessionState:
             fail_count=data.get("fail_count", 0),
             error_count=data.get("error_count", 0),
             selected_files=data.get("selected_files", []),
-            output_entries=[
-                tuple(e) for e in data.get("output_entries", []) if len(e) == 2
-            ],
+            output_entries=valid_entries,
             failed_item_ids=data.get("failed_item_ids", []),
         )
 
