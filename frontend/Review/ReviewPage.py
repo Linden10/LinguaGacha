@@ -126,6 +126,13 @@ class ReviewPage(Base, QWidget):
         self.failed_item_ids: set[int] = set()
         self.auto_retry_count: int = 0
 
+        # UI 刷新节流：高速审校时累积进度事件，定时批量刷新，避免 UI 冻结
+        self.refresh_pending: bool = False
+        self.refresh_timer: QTimer = QTimer(self)
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.setInterval(100)  # 100ms 批量刷新间隔
+        self.refresh_timer.timeout.connect(self.flush_pending_refresh)
+
         # 载入配置
         config = Config().load()
 
@@ -597,7 +604,7 @@ class ReviewPage(Base, QWidget):
 
     def on_output_filter_changed(self, index: int) -> None:
         """输出日志过滤条件变更，重建显示内容。"""
-        self.refresh_output_display()
+        self.refresh_output_display(immediate=True)
 
     def on_approval_mode_changed(self, index: int) -> None:
         """审批模式切换，保存到配置。审校过程中实时生效。"""
@@ -630,8 +637,30 @@ class ReviewPage(Base, QWidget):
         filtered = [text for v, text in self.output_entries if v == target_verdict]
         return "\n".join(filtered)
 
-    def refresh_output_display(self) -> None:
-        """重建并刷新输出文本区域，保持统一的显示顺序：
+    def refresh_output_display(self, *, immediate: bool = False) -> None:
+        """请求刷新输出文本区域。
+
+        高速审校时事件可能在极短时间内连续到达，每次都全量重建文本会导致 UI 冻结。
+        默认走节流路径：标记 pending 后由 refresh_timer 统一刷新，保证至少 100ms 间隔。
+        待批/Ask AI 等交互性事件使用 immediate=True 绕过节流，确保用户立即看到结果。
+        """
+        if immediate or self.awaiting_approval:
+            self.do_refresh_output_display()
+            return
+
+        # 标记待刷新，定时器触发后统一执行
+        self.refresh_pending = True
+        if not self.refresh_timer.isActive():
+            self.refresh_timer.start()
+
+    def flush_pending_refresh(self) -> None:
+        """定时器回调：执行被节流的输出刷新。"""
+        if self.refresh_pending:
+            self.refresh_pending = False
+            self.do_refresh_output_display()
+
+    def do_refresh_output_display(self) -> None:
+        """实际重建并刷新输出文本区域，保持统一的显示顺序：
         [已完成结果] → [待批结果] → [Ask AI 对话]
         """
         parts: list[str] = [self.build_filtered_output()]
@@ -1267,7 +1296,7 @@ class ReviewPage(Base, QWidget):
         q_line = loc.review_page_inquiry_question.replace("{TEXT}", text)
         self.inquiry_lines.append(q_line)
 
-        self.refresh_output_display()
+        self.refresh_output_display(immediate=True)
 
         # 清空输入框
         self.inquiry_input.clear()
@@ -1702,7 +1731,7 @@ class ReviewPage(Base, QWidget):
                     self.dst_alternatives.append(dst)
             self.refresh_dst_selector()
 
-        self.refresh_output_display()
+        self.refresh_output_display(immediate=True)
 
     def on_review_stop(self, event: Base.Event, data: dict) -> None:
         """响应审校停止事件。"""
