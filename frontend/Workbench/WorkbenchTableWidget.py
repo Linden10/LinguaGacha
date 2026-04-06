@@ -25,13 +25,15 @@ class WorkbenchTableWidget(AppTableView):
     COL_FILE = 0
     COL_FORMAT = 1
     COL_LINES = 2
-    COL_ACTIONS = 3
+    COL_MODIFIED = 3
+    COL_ACTIONS = 4
 
     # 布局常量
     FONT_SIZE = 12
     ROW_HEIGHT = 40
     COL_FORMAT_WIDTH = 180
     COL_LINES_WIDTH = 80
+    COL_MODIFIED_WIDTH = 140
     COL_ACTIONS_WIDTH = 60
     ROW_NUMBER_MIN_WIDTH = 40
 
@@ -78,6 +80,13 @@ class WorkbenchTableWidget(AppTableView):
                 width=self.COL_LINES_WIDTH,
                 alignment=Qt.AlignmentFlag.AlignCenter,
                 display_getter=lambda row: str(row.get("item_count", 0)),
+            ),
+            ColumnSpec(
+                header=Localizer.get().workbench_col_modified,
+                width_mode=ColumnSpec.WidthMode.FIXED,
+                width=self.COL_MODIFIED_WIDTH,
+                alignment=Qt.AlignmentFlag.AlignCenter,
+                display_getter=lambda row: str(row.get("modified_at", "")),
             ),
             ColumnSpec(
                 header=Localizer.get().workbench_col_actions,

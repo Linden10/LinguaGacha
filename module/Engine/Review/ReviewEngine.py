@@ -616,7 +616,7 @@ class ReviewEngine(Base):
             return
 
         dst = custom_dst if custom_dst else result.corrected
-        item.dst = dst
+        item.set_dst(dst)
         try:
             DataManager.get().save_item(item)
         except Exception as e:

@@ -32,11 +32,13 @@ class ProofreadingTableWidget(TableView):
     # 列索引常量
     COL_SRC = ProofreadingTableModel.COL_SRC
     COL_DST = ProofreadingTableModel.COL_DST
+    COL_MODIFIED = ProofreadingTableModel.COL_MODIFIED
     COL_STATUS = ProofreadingTableModel.COL_STATUS
 
     # 布局常量
     FONT_SIZE = 12
     ROW_HEIGHT = 40
+    COL_MODIFIED_WIDTH = 140
     COL_STATUS_WIDTH = 60
     ROW_NUMBER_MIN_WIDTH = 40
 
@@ -103,6 +105,8 @@ class ProofreadingTableWidget(TableView):
         header = cast(QHeaderView, self.horizontalHeader())
         header.setSectionResizeMode(self.COL_SRC, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self.COL_DST, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_MODIFIED, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(self.COL_MODIFIED, self.COL_MODIFIED_WIDTH)
         header.setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.Fixed)
         self.setColumnWidth(self.COL_STATUS, self.COL_STATUS_WIDTH)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -187,16 +191,21 @@ class ProofreadingTableWidget(TableView):
         return self.table_model.find_row_by_item(item)
 
     def update_row_dst(self, row: int) -> None:
-        """更新指定行的译文（通过 dataChanged 精准刷新）。"""
+        """更新指定行的译文和修改时间（通过 dataChanged 精准刷新）。"""
 
         # DisplayRole 的 compact 缓存依赖 dst 内容；dst 变更时需精确失效。
         self.table_model.invalidate_display_cache_by_row(row, dst=True)
-        index = self.table_model.index(row, self.COL_DST)
-        if not index.isValid():
-            return
-        self.table_model.dataChanged.emit(
-            index, index, [int(Qt.ItemDataRole.DisplayRole)]
-        )
+        dst_index = self.table_model.index(row, self.COL_DST)
+        if dst_index.isValid():
+            self.table_model.dataChanged.emit(
+                dst_index, dst_index, [int(Qt.ItemDataRole.DisplayRole)]
+            )
+        # 修改时间列一同刷新
+        mod_index = self.table_model.index(row, self.COL_MODIFIED)
+        if mod_index.isValid():
+            self.table_model.dataChanged.emit(
+                mod_index, mod_index, [int(Qt.ItemDataRole.DisplayRole)]
+            )
 
     def update_row_status(self, row: int, warnings: list[WarningType]) -> None:
         """更新指定行的状态/告警图标（通过更新 warning_map + dataChanged 刷新）。"""

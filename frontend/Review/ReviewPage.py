@@ -34,6 +34,10 @@ from module.Config import Config
 from module.Data.DataManager import DataManager
 from module.Engine.Engine import Engine
 from module.Engine.Review.ReviewModels import ReviewHistoryEntry
+from module.Engine.Review.ReviewSessionPersistence import ReviewSessionState
+from module.Engine.Review.ReviewSessionPersistence import delete_session
+from module.Engine.Review.ReviewSessionPersistence import load_session
+from module.Engine.Review.ReviewSessionPersistence import save_session
 from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.Localizer.Localizer import Localizer
 from widget.CommandBarCard import CommandBarCard
@@ -109,6 +113,12 @@ class ReviewPage(Base, QWidget):
         self.review_items: list[Item] = []
         self.reviewed_count: int = 0
 
+        # 统计计数（用于会话持久化和进度恢复）
+        self.stat_pass: int = 0
+        self.stat_fix: int = 0
+        self.stat_fail: int = 0
+        self.stat_error: int = 0
+
         # 输出日志：累积每行审校结果的格式化文本，附带 verdict 用于过滤
         self.output_entries: list[tuple[str, str]] = []
 
@@ -125,6 +135,13 @@ class ReviewPage(Base, QWidget):
         # 自动重试失败行追踪
         self.failed_item_ids: set[int] = set()
         self.auto_retry_count: int = 0
+
+        # UI 刷新节流：高速审校时累积进度事件，定时批量刷新，避免 UI 冻结
+        self.refresh_pending: bool = False
+        self.refresh_timer: QTimer = QTimer(self)
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.setInterval(100)  # 100ms 批量刷新间隔
+        self.refresh_timer.timeout.connect(self.flush_pending_refresh)
 
         # 载入配置
         config = Config().load()
@@ -597,7 +614,7 @@ class ReviewPage(Base, QWidget):
 
     def on_output_filter_changed(self, index: int) -> None:
         """输出日志过滤条件变更，重建显示内容。"""
-        self.refresh_output_display()
+        self.refresh_output_display(immediate=True)
 
     def on_approval_mode_changed(self, index: int) -> None:
         """审批模式切换，保存到配置。审校过程中实时生效。"""
@@ -630,8 +647,30 @@ class ReviewPage(Base, QWidget):
         filtered = [text for v, text in self.output_entries if v == target_verdict]
         return "\n".join(filtered)
 
-    def refresh_output_display(self) -> None:
-        """重建并刷新输出文本区域，保持统一的显示顺序：
+    def refresh_output_display(self, *, immediate: bool = False) -> None:
+        """请求刷新输出文本区域。
+
+        高速审校时事件可能在极短时间内连续到达，每次都全量重建文本会导致 UI 冻结。
+        默认走节流路径：标记 pending 后由 refresh_timer 统一刷新，保证至少 100ms 间隔。
+        待批/Ask AI 等交互性事件使用 immediate=True 绕过节流，确保用户立即看到结果。
+        """
+        if immediate or self.awaiting_approval:
+            self.do_refresh_output_display()
+            return
+
+        # 标记待刷新，定时器触发后统一执行
+        self.refresh_pending = True
+        if not self.refresh_timer.isActive():
+            self.refresh_timer.start()
+
+    def flush_pending_refresh(self) -> None:
+        """定时器回调：执行被节流的输出刷新。"""
+        if self.refresh_pending:
+            self.refresh_pending = False
+            self.do_refresh_output_display()
+
+    def do_refresh_output_display(self) -> None:
+        """实际重建并刷新输出文本区域，保持统一的显示顺序：
         [已完成结果] → [待批结果] → [Ask AI 对话]
         """
         parts: list[str] = [self.build_filtered_output()]
@@ -1105,8 +1144,13 @@ class ReviewPage(Base, QWidget):
         self.output_text.clear()
         self.review_items = review_items
         self.reviewed_count = 0
+        self.stat_pass = 0
+        self.stat_fix = 0
+        self.stat_fail = 0
+        self.stat_error = 0
         self.failed_item_ids = set()
         self.auto_retry_count = 0
+        self.clear_persisted_session()
 
         self.emit(
             Base.Event.REVIEW_TASK,
@@ -1124,6 +1168,122 @@ class ReviewPage(Base, QWidget):
             and self.reviewed_count > 0
             and self.reviewed_count < len(self.review_items)
         )
+
+    # ==================== 会话持久化 ====================
+
+    def persist_session(self) -> None:
+        """将当前审校会话状态保存到工程目录，供跨重启恢复。"""
+        dm = DataManager.get()
+        lg_path = dm.get_lg_path() if dm.is_loaded() else None
+        if not lg_path:
+            return
+        if not self.review_items or self.reviewed_count <= 0:
+            return
+
+        # 仅保存有有效 ID 的条目
+        valid_ids = [
+            item.id for item in self.review_items if item.id is not None and item.id > 0
+        ]
+        if not valid_ids:
+            return
+
+        state = ReviewSessionState(
+            item_ids=valid_ids,
+            reviewed_count=self.reviewed_count,
+            pass_count=self.stat_pass,
+            fix_count=self.stat_fix,
+            fail_count=self.stat_fail,
+            error_count=self.stat_error,
+            selected_files=list(self.selected_files),
+            output_entries=list(self.output_entries),
+            failed_item_ids=list(self.failed_item_ids),
+        )
+        save_session(lg_path, state)
+
+    def clear_persisted_session(self) -> None:
+        """删除工程目录下的审校会话文件。"""
+        dm = DataManager.get()
+        lg_path = dm.get_lg_path() if dm.is_loaded() else None
+        if lg_path:
+            delete_session(lg_path)
+
+    def try_restore_session(self) -> None:
+        """尝试从工程目录恢复之前的审校会话。
+
+        恢复时提示用户确认，通过 item_id 重建 review_items 列表。
+        """
+        dm = DataManager.get()
+        lg_path = dm.get_lg_path() if dm.is_loaded() else None
+        if not lg_path:
+            return
+
+        state = load_session(lg_path)
+        if state is None:
+            return
+
+        # 通过 item_id 重建 review_items（跳过无效 ID）
+        all_items = dm.get_all_items()
+        item_map: dict[int, Item] = {
+            item.id: item for item in all_items if item.id is not None and item.id > 0
+        }
+        restored_items: list[Item] = []
+        for item_id in state.item_ids:
+            if item_id <= 0:
+                continue
+            item = item_map.get(item_id)
+            if item is not None:
+                restored_items.append(item)
+
+        if not restored_items or state.reviewed_count >= len(restored_items):
+            # 条目已不匹配或已全部审校完成，清除会话文件
+            delete_session(lg_path)
+            return
+
+        # 弹出确认对话框
+        loc = Localizer.get()
+        progress_text = loc.review_page_restore_prompt.replace(
+            "{REVIEWED}", str(state.reviewed_count)
+        ).replace("{TOTAL}", str(len(restored_items)))
+
+        dialog = MessageBox(
+            loc.review_page_restore_title,
+            progress_text,
+            self.window_ref,
+        )
+        dialog.yesButton.setText(loc.confirm)
+        dialog.cancelButton.setText(loc.cancel)
+
+        if not dialog.exec():
+            delete_session(lg_path)
+            return
+
+        # 恢复会话状态
+        self.review_items = restored_items
+        self.reviewed_count = state.reviewed_count
+        self.selected_files = state.selected_files
+        self.output_entries = state.output_entries
+        self.failed_item_ids = set(state.failed_item_ids)
+
+        # 恢复统计计数
+        self.stat_pass = state.pass_count
+        self.stat_fix = state.fix_count
+        self.stat_fail = state.fail_count
+        self.stat_error = state.error_count
+
+        # 恢复统计卡片和进度环
+        self.pass_card.set_value(str(state.pass_count))
+        self.fix_card.set_value(str(state.fix_count))
+        self.fail_card.set_value(str(state.fail_count))
+        self.error_card.set_value(str(state.error_count))
+
+        percent = state.reviewed_count / max(1, len(restored_items))
+        self.ring.setValue(int(percent * RING_MAX_VALUE))
+        self.set_ring_status(Localizer.get().review_page_status_idle)
+
+        # 刷新输出和按钮（显示 Continue 按钮）
+        self.refresh_output_display(immediate=True)
+        self.update_file_button_text()
+        self.update_buttons()
 
     @staticmethod
     def filter_translated_items(items: list[Item]) -> list[Item]:
@@ -1267,7 +1427,7 @@ class ReviewPage(Base, QWidget):
         q_line = loc.review_page_inquiry_question.replace("{TEXT}", text)
         self.inquiry_lines.append(q_line)
 
-        self.refresh_output_display()
+        self.refresh_output_display(immediate=True)
 
         # 清空输入框
         self.inquiry_input.clear()
@@ -1348,6 +1508,10 @@ class ReviewPage(Base, QWidget):
         """重置全部：清空整个审校会话。"""
         self.review_items = []
         self.reviewed_count = 0
+        self.stat_pass = 0
+        self.stat_fix = 0
+        self.stat_fail = 0
+        self.stat_error = 0
         self.output_entries = []
         self.output_text.clear()
         self.history_entries = []
@@ -1359,6 +1523,7 @@ class ReviewPage(Base, QWidget):
         self.hide_dst_selector()
         self.refresh_history_list()
         self.clear_stats()
+        self.clear_persisted_session()
         self.update_buttons()
 
     # ==================== 历史面板 ====================
@@ -1429,7 +1594,7 @@ class ReviewPage(Base, QWidget):
                 items = dm.get_all_items()
                 for item in items:
                     if (item.id or 0) == entry.item_id:
-                        item.dst = entry.original_dst
+                        item.set_dst(entry.original_dst)
                         dm.save_item(item)
                         break
         except Exception as e:
@@ -1464,7 +1629,7 @@ class ReviewPage(Base, QWidget):
                     items = dm.get_all_items()
                     for item in items:
                         if (item.id or 0) == entry.item_id:
-                            item.dst = entry.corrected
+                            item.set_dst(entry.corrected)
                             dm.save_item(item)
                             break
             except Exception as e:
@@ -1542,7 +1707,9 @@ class ReviewPage(Base, QWidget):
                         self.auto_retry_failed_items()
                         return
 
+            # 会话完成时清除持久化文件；停止时保存进度以便下次恢复
             if final_status == "SUCCESS":
+                self.clear_persisted_session()
                 self.emit(
                     Base.Event.TOAST,
                     {
@@ -1550,6 +1717,8 @@ class ReviewPage(Base, QWidget):
                         "message": Localizer.get().review_page_done,
                     },
                 )
+            elif self.has_review_progress():
+                self.persist_session()
 
     def set_ring_status(self, status_text: str) -> None:
         """更新进度环的状态文字和百分比。"""
@@ -1576,6 +1745,12 @@ class ReviewPage(Base, QWidget):
         # 跟踪审校会话进度（用于 Continue 功能）
         if not awaiting and reviewed > 0:
             self.reviewed_count = len(self.review_items) - total + reviewed
+
+        # 更新统计计数（用于会话持久化）
+        self.stat_pass = pass_count
+        self.stat_fix = fix_count
+        self.stat_fail = fail_count
+        self.stat_error = error_count
 
         # 更新进度环
         percent = reviewed / max(1, total)
@@ -1628,6 +1803,11 @@ class ReviewPage(Base, QWidget):
                         reason=result_data.get("reason", ""),
                     )
                     self.add_history_entry(entry)
+
+                # 定期持久化会话状态（每 10 行保存一次）
+                if self.reviewed_count > 0 and self.reviewed_count % 10 == 0:
+                    self.persist_session()
+
             self.refresh_output_display()
         else:
             # 回退：仅显示进度行
@@ -1702,7 +1882,7 @@ class ReviewPage(Base, QWidget):
                     self.dst_alternatives.append(dst)
             self.refresh_dst_selector()
 
-        self.refresh_output_display()
+        self.refresh_output_display(immediate=True)
 
     def on_review_stop(self, event: Base.Event, data: dict) -> None:
         """响应审校停止事件。"""
@@ -1719,8 +1899,9 @@ class ReviewPage(Base, QWidget):
         self.update_buttons()
 
     def on_project_loaded(self, event: Base.Event, data: dict) -> None:
-        """工程加载后刷新文件列表。"""
+        """工程加载后刷新文件列表并尝试恢复之前的审校会话。"""
         self.populate_file_list()
+        self.try_restore_session()
 
     def on_project_unloaded(self, event: Base.Event, data: dict) -> None:
         """工程卸载后清空文件列表、审校会话和输出。"""
@@ -1729,6 +1910,10 @@ class ReviewPage(Base, QWidget):
         self.starting_line_index = 0
         self.review_items = []
         self.reviewed_count = 0
+        self.stat_pass = 0
+        self.stat_fix = 0
+        self.stat_fail = 0
+        self.stat_error = 0
         self.output_entries = []
         self.history_entries = []
         self.undo_stack = []

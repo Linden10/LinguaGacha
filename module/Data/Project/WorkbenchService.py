@@ -37,6 +37,7 @@ class WorkbenchService:
         translated_in_past = 0
         count_by_path: dict[str, int] = defaultdict(int)
         file_type_by_path: dict[str, Item.FileType] = {}
+        modified_by_path: dict[str, str] = {}
 
         for item in GapTool.iter(item_dicts):
             rel_path = item.get("file_path")
@@ -52,6 +53,13 @@ class WorkbenchService:
                         file_type_by_path[rel_path] = Item.FileType(raw_type)
                     except ValueError:
                         file_type_by_path[rel_path] = Item.FileType.NONE
+
+            # 跟踪每个文件下最新的修改时间
+            item_modified = item.get("modified_at", "")
+            if isinstance(item_modified, str) and item_modified:
+                current = modified_by_path.get(rel_path, "")
+                if item_modified > current:
+                    modified_by_path[rel_path] = item_modified
 
             status = self.normalize_status(item.get("status", Base.ProjectStatus.NONE))
             if status not in self.COUNTED_STATUSES:
@@ -71,6 +79,7 @@ class WorkbenchService:
                     rel_path=rel_path,
                     item_count=count_by_path.get(rel_path, 0),
                     file_type=file_type_by_path.get(rel_path, Item.FileType.NONE),
+                    modified_at=modified_by_path.get(rel_path, ""),
                 )
             )
 

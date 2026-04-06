@@ -28,6 +28,7 @@ class WorkbenchFileEntrySnapshot:
     rel_path: str
     item_count: int
     file_type: Item.FileType
+    modified_at: str = ""  # 该文件下条目的最新修改时间（ISO 8601）
 
 
 @dataclass(frozen=True)

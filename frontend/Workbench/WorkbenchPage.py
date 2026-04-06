@@ -416,11 +416,16 @@ class WorkbenchPage(Base, ScrollArea):
         entries: list[dict[str, Any]] = []
         for entry in GapTool.iter(snapshot.entries):
             fmt = self.get_format_label(entry.file_type, entry.rel_path)
+            # 格式化修改时间：YYYY-MM-DD HH:MM
+            modified_display = (
+                entry.modified_at.replace("T", " ")[:16] if entry.modified_at else ""
+            )
             entries.append(
                 {
                     "rel_path": entry.rel_path,
                     "format": fmt,
                     "item_count": entry.item_count,
+                    "modified_at": modified_display,
                 }
             )
 
