@@ -1197,6 +1197,7 @@ class ReviewPage(Base, QWidget):
             selected_files=list(self.selected_files),
             output_entries=list(self.output_entries),
             failed_item_ids=list(self.failed_item_ids),
+            scope_index=self.scope_combo.currentIndex(),
         )
         save_session(lg_path, state)
 
@@ -1263,6 +1264,10 @@ class ReviewPage(Base, QWidget):
         self.selected_files = state.selected_files
         self.output_entries = state.output_entries
         self.failed_item_ids = set(state.failed_item_ids)
+
+        # 恢复审校范围选择
+        if 0 <= state.scope_index < self.scope_combo.count():
+            self.scope_combo.setCurrentIndex(state.scope_index)
 
         # 恢复统计计数
         self.stat_pass = state.pass_count
@@ -1746,14 +1751,21 @@ class ReviewPage(Base, QWidget):
         if not awaiting and reviewed > 0:
             self.reviewed_count = len(self.review_items) - total + reviewed
 
+        # 计算总体进度：当从中间继续时，展示全局位置而非局部位置
+        # 例如 4001 条已审校到 1052，继续时引擎看到 2949 条中的第 1 条
+        # 但用户应看到 1053/4001 而非 1/2949
+        overall_total = len(self.review_items) if self.review_items else total
+        overall_offset = overall_total - total  # 已完成的条目数偏移
+        overall_reviewed = overall_offset + reviewed
+
         # 更新统计计数（用于会话持久化）
         self.stat_pass = pass_count
         self.stat_fix = fix_count
         self.stat_fail = fail_count
         self.stat_error = error_count
 
-        # 更新进度环
-        percent = reviewed / max(1, total)
+        # 更新进度环（使用全局进度）
+        percent = overall_reviewed / max(1, overall_total)
         self.ring.setValue(int(percent * RING_MAX_VALUE))
         self.set_ring_status(Localizer.get().review_page_status_reviewing)
 
@@ -1763,12 +1775,12 @@ class ReviewPage(Base, QWidget):
         self.fail_card.set_value(str(fail_count))
         self.error_card.set_value(str(error_count))
 
-        # 构建审校结果行并追加到输出
+        # 构建审校结果行并追加到输出（使用全局行号让用户看到整体进度）
         if result_data:
             line = self.format_result_line(
                 result_data,
-                reviewed,
-                total,
+                overall_reviewed,
+                overall_total,
                 awaiting,
             )
             if awaiting:

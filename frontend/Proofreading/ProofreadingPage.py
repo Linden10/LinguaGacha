@@ -343,6 +343,7 @@ class ProofreadingPage(Base, QWidget):
             self.on_batch_reset_translation_clicked
         )
         self.table_widget.batch_review_clicked.connect(self.on_batch_review_clicked)
+        self.table_widget.sort_changed.connect(self.on_sort_changed)
         self.table_widget.itemSelectionChanged.connect(self.on_table_selection_changed)
         self.table_widget.set_items([], {})
 
@@ -566,6 +567,17 @@ class ProofreadingPage(Base, QWidget):
             self.data_stale = True
             self.schedule_reload("pending")
 
+    # ========== 排序功能 ==========
+    def on_sort_changed(self) -> None:
+        """Modified 列排序状态变化时重新排列表格数据。"""
+        if not self.filtered_items:
+            return
+        sort_state = self.table_widget.get_sort_state()
+        display_items = ProofreadingTableWidget.sort_items_by_modified(
+            self.filtered_items, sort_state
+        )
+        self.table_widget.set_items(display_items, self.warning_map)
+
     # ========== 筛选功能 ==========
     def on_filter_clicked(self) -> None:
         """筛选按钮点击"""
@@ -675,8 +687,14 @@ class ProofreadingPage(Base, QWidget):
         self.indeterminate_hide()
         self.filtered_items = filtered
 
+        # 按 Modified 列排序状态对筛选结果排序
+        sort_state = self.table_widget.get_sort_state()
+        display_items = ProofreadingTableWidget.sort_items_by_modified(
+            self.filtered_items, sort_state
+        )
+
         # 分页已迁移为无限滚动：筛选完成后一次性设置数据源，由 TableModel 负责 lazyload。
-        self.table_widget.set_items(self.filtered_items, self.warning_map)
+        self.table_widget.set_items(display_items, self.warning_map)
         if not self.filtered_items:
             self.current_item = None
             self.current_row_index = -1

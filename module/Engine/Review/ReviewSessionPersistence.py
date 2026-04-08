@@ -35,6 +35,12 @@ class ReviewSessionState:
     # 失败行 ID（用于自动重试）
     failed_item_ids: list[int] = field(default_factory=list)
 
+    # 审校范围选择索引（0=全部, 1=按文件, 2=失败行）
+    scope_index: int = 0
+
+    # 校对页选中行的 item_id（用于恢复 Proofreading 选中状态）
+    selected_line_ids: list[int] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 安全的字典。"""
         return {
@@ -47,6 +53,8 @@ class ReviewSessionState:
             "selected_files": self.selected_files,
             "output_entries": self.output_entries,
             "failed_item_ids": self.failed_item_ids,
+            "scope_index": self.scope_index,
+            "selected_line_ids": self.selected_line_ids,
         }
 
     @classmethod
@@ -75,6 +83,8 @@ class ReviewSessionState:
             selected_files=data.get("selected_files", []),
             output_entries=valid_entries,
             failed_item_ids=data.get("failed_item_ids", []),
+            scope_index=data.get("scope_index", 0),
+            selected_line_ids=data.get("selected_line_ids", []),
         )
 
 
