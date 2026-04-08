@@ -1908,15 +1908,16 @@ class ProofreadingPage(Base, QWidget):
         if self.is_readonly or not items:
             return
 
-        # 从工程数据中收集第一条选中条目之前的上文，为审校提供前文上下文
-        context_items = self.gather_review_context(items[0])
+        # 传递完整工程条目列表，让引擎为每条选中行独立查找前文上下文，
+        # 解决非连续选中行的上下文缺失问题
+        project_items = DataManager.get().get_all_items()
 
         self.emit(
             Base.Event.REVIEW_TASK,
             {
                 "sub_event": Base.SubEvent.REQUEST,
                 "items": items,
-                "context_items": context_items,
+                "project_items": project_items,
             },
         )
 

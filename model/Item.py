@@ -291,6 +291,9 @@ class Item:
     # 获取修改时间
     def get_modified_at(self) -> str:
         with self.lock:
+            # 兼容旧工程中 modified_at 可能为 None 的情况
+            if not isinstance(self.modified_at, str):
+                return ""
             return self.modified_at
 
     # 获取重试次数

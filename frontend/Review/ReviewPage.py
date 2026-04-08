@@ -1782,6 +1782,11 @@ class ReviewPage(Base, QWidget):
                 self.awaiting_result_line = line
                 self.update_buttons()
             else:
+                # 已完成的结果：退出待批状态，恢复节流刷新，避免连续自动通过的
+                # PASS/ERROR 条目绕过 100ms 刷新间隔导致 UI 冻结
+                self.awaiting_approval = False
+                self.awaiting_result_line = ""
+
                 verdict = result_data.get("verdict", "")
                 self.output_entries.append((verdict, line))
 
