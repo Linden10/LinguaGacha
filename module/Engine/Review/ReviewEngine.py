@@ -21,6 +21,7 @@ from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.GameCapture.GameCapture import GameCapture
 from module.Localizer.Localizer import Localizer
 from module.QualityRule.QualityRuleSnapshot import QualityRuleSnapshot
+from module.TextProcessor import TextProcessor
 
 
 class ReviewEngine(Base):
@@ -367,7 +368,13 @@ class ReviewEngine(Base):
                         # 用户可能通过 Ask AI 选择了备选 dst
                         with self.lock:
                             custom_dst = self.custom_dst
-                        self.apply_fix_if_needed(result, item, custom_dst=custom_dst)
+                        self.apply_fix_if_needed(
+                            result,
+                            item,
+                            custom_dst=custom_dst,
+                            config=config,
+                            quality_snapshot=quality_snapshot,
+                        )
 
                     # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
                     skipped = decision == self.DECISION_SKIP
@@ -673,17 +680,37 @@ class ReviewEngine(Base):
             return self.DECISION_DENY
 
     def apply_fix_if_needed(
-        self, result: ReviewResult, item: Item, *, custom_dst: str = ""
+        self,
+        result: ReviewResult,
+        item: Item,
+        *,
+        custom_dst: str = "",
+        config: Config | None = None,
+        quality_snapshot: QualityRuleSnapshot | None = None,
     ) -> None:
         """若结果为 FIX 且有修正文本，将修正写回数据层。
 
         custom_dst: 用户通过 Ask AI 选择的备选翻译，优先于 result.corrected。
+        config / quality_snapshot: 用于对修正文本应用译后替换和文本保护还原。
         注意：会直接修改 item.dst，使后续上文引用的也是修正后的译文。
         """
         if result.verdict != ReviewVerdict.FIX or not result.corrected:
             return
 
         dst = custom_dst if custom_dst else result.corrected
+
+        # 应用译后替换和文本保护还原，与翻译后处理保持一致
+        if config is not None:
+            dst = TextProcessor.post_process_review_fix(
+                config=config,
+                item=item,
+                corrected_dst=dst,
+                quality_snapshot=quality_snapshot,
+            )
+            # 同步更新 result.corrected，确保 UI 和历史记录显示处理后的文本
+            if not custom_dst:
+                result.corrected = dst
+
         item.set_dst(dst)
         try:
             DataManager.get().save_item(item)
