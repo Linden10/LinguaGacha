@@ -35,6 +35,11 @@ class ProofreadingTableWidget(TableView):
     COL_MODIFIED = ProofreadingTableModel.COL_MODIFIED
     COL_STATUS = ProofreadingTableModel.COL_STATUS
 
+    # Modified 列排序状态常量
+    SORT_NONE = 0
+    SORT_DESCENDING = 1
+    SORT_ASCENDING = 2
+
     # 布局常量
     FONT_SIZE = 12
     ROW_HEIGHT = 40
