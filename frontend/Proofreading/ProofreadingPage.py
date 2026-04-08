@@ -1939,28 +1939,6 @@ class ProofreadingPage(Base, QWidget):
             },
         )
 
-    def gather_review_context(self, first_item: Item) -> list[Item]:
-        """从工程数据中收集 first_item 之前的条目，作为审校上文。"""
-        config = Config().load()
-        preceding_count = config.review_preceding_lines
-        if preceding_count <= 0:
-            return []
-
-        all_items = DataManager.get().get_all_items()
-
-        # 找到 first_item 在全局列表中的位置
-        target_idx = -1
-        for idx, candidate in enumerate(all_items):
-            if candidate is first_item:
-                target_idx = idx
-                break
-
-        if target_idx <= 0:
-            return []
-
-        start_idx = max(0, target_idx - preceding_count)
-        return all_items[start_idx:target_idx]
-
     # ========== 重新翻译功能 ==========
     def on_retranslate_clicked(self, item: Item) -> None:
         """重新翻译按钮点击 - 单条翻译也使用批量翻译流程"""

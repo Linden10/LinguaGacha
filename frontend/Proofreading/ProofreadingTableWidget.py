@@ -149,9 +149,11 @@ class ProofreadingTableWidget(TableView):
         SORT_DESCENDING 按 modified_at 降序（最新在前），
         SORT_ASCENDING 按 modified_at 升序（最早在前）。
         """
-        if sort_state == 1:  # SORT_DESCENDING
-            return sorted(items, key=lambda it: it.get_modified_at() or "", reverse=True)
-        if sort_state == 2:  # SORT_ASCENDING
+        if sort_state == ProofreadingTableWidget.SORT_DESCENDING:
+            return sorted(
+                items, key=lambda it: it.get_modified_at() or "", reverse=True
+            )
+        if sort_state == ProofreadingTableWidget.SORT_ASCENDING:
             return sorted(items, key=lambda it: it.get_modified_at() or "")
         return items
 

@@ -1755,8 +1755,8 @@ class ReviewPage(Base, QWidget):
         # 例如 4001 条已审校到 1052，继续时引擎看到 2949 条中的第 1 条
         # 但用户应看到 1053/4001 而非 1/2949
         overall_total = len(self.review_items) if self.review_items else total
-        overall_offset = overall_total - total  # 已完成的条目数偏移
-        overall_reviewed = overall_offset + reviewed
+        already_completed = overall_total - total  # 续审前已完成的条目数
+        overall_reviewed = already_completed + reviewed
 
         # 更新统计计数（用于会话持久化）
         self.stat_pass = pass_count

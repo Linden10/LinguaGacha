@@ -192,10 +192,13 @@ class ReviewEngine(Base):
 
         # 当提供 project_items 时，为每条待审校条目建立独立的上下文索引
         # 这样非连续选中的行也能获得正确的前文上下文
+        # 使用 item.id（数据库主键）而非 id(obj)，确保跨上下文对象身份稳定
         project_index: dict[int, int] = {}
         if project_items:
             for idx, proj_item in enumerate(project_items):
-                project_index[id(proj_item)] = idx
+                item_id = proj_item.id
+                if isinstance(item_id, int) and item_id > 0:
+                    project_index[item_id] = idx
 
         final_status = "FAILED"
         capturer: GameCapture | None = None
@@ -531,10 +534,12 @@ class ReviewEngine(Base):
             return []
 
         if project_items and project_index:
-            proj_idx = project_index.get(id(item), -1)
-            if proj_idx > 0:
-                pstart = max(0, proj_idx - preceding_count)
-                return project_items[pstart:proj_idx]
+            item_id = item.id
+            if isinstance(item_id, int) and item_id > 0:
+                proj_idx = project_index.get(item_id, -1)
+                if proj_idx > 0:
+                    pstart = max(0, proj_idx - preceding_count)
+                    return project_items[pstart:proj_idx]
 
         # 回退：使用 context_items + items 拼接列表
         abs_idx = offset + index
