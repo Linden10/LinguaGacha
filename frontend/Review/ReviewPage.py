@@ -1754,7 +1754,10 @@ class ReviewPage(Base, QWidget):
         # 计算总体进度：当从中间继续时，展示全局位置而非局部位置
         # 例如 4001 条已审校到 1052，继续时引擎看到 2949 条中的第 1 条
         # 但用户应看到 1053/4001 而非 1/2949
-        overall_total = len(self.review_items) if self.review_items else total
+        # review_items 包含全部条目（含已审校），未恢复会话时与 total 一致
+        overall_total = (
+            len(self.review_items) if len(self.review_items) > total else total
+        )
         already_completed = overall_total - total  # 续审前已完成的条目数
         overall_reviewed = already_completed + reviewed
 

@@ -537,7 +537,7 @@ class ReviewEngine(Base):
             item_id = item.id
             if isinstance(item_id, int) and item_id > 0:
                 proj_idx = project_index.get(item_id, -1)
-                if proj_idx > 0:
+                if proj_idx >= 0:
                     pstart = max(0, proj_idx - preceding_count)
                     return project_items[pstart:proj_idx]
 
