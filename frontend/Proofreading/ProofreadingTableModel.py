@@ -241,5 +241,8 @@ class ProofreadingTableModel(QAbstractTableModel):
         """将 ISO 8601 时间戳格式化为简短的日期时间显示。"""
         if not raw:
             return ""
+        if not isinstance(raw, str):
+            # 兼容旧工程中 modified_at 可能为 None 或其他非字符串值的情况
+            return ""
         # 取 YYYY-MM-DD HH:MM 部分展示
         return raw.replace("T", " ")[:16]

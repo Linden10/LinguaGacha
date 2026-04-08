@@ -21,6 +21,7 @@ from module.Engine.TaskRunnerLifecycle import TaskRunnerLifecycle
 from module.GameCapture.GameCapture import GameCapture
 from module.Localizer.Localizer import Localizer
 from module.QualityRule.QualityRuleSnapshot import QualityRuleSnapshot
+from module.TextProcessor import TextProcessor
 
 
 class ReviewEngine(Base):
@@ -150,6 +151,9 @@ class ReviewEngine(Base):
         # 上文条目：不参与审校，但为前几条提供上下文
         context_items: list[Item] = data.get("context_items", [])
 
+        # 完整工程条目列表：用于非连续选中行的独立上下文查找
+        project_items: list[Item] | None = data.get("project_items")
+
         # 重置状态
         with self.lock:
             self.stop_requested = False
@@ -165,11 +169,14 @@ class ReviewEngine(Base):
             busy_status=Base.TaskStatus.REVIEWING,
             task_event=Base.Event.REVIEW_TASK,
             mode=Base.TranslationMode.NEW,
-            worker=lambda: self.run_review(items, context_items),
+            worker=lambda: self.run_review(items, context_items, project_items),
         )
 
     def run_review(
-        self, items: list[Item], context_items: list[Item] | None = None
+        self,
+        items: list[Item],
+        context_items: list[Item] | None = None,
+        project_items: list[Item] | None = None,
     ) -> None:
         """后台线程：执行审校任务主循环。
 
@@ -177,11 +184,23 @@ class ReviewEngine(Base):
         预先向 AI 请求后续条目的审校结果，减少用户的等待时间。
 
         context_items: 不参与审校的上文条目，为起始处的条目提供前文上下文。
+        project_items: 完整工程条目列表，用于非连续选中行的独立上下文查找。
         """
         # 将上文条目拼在 items 前面，形成完整序列用于上下文查找
         ctx = context_items or []
         offset = len(ctx)
         all_items = ctx + items
+
+        # 当提供 project_items 时，为每条待审校条目建立独立的上下文索引
+        # 这样非连续选中的行也能获得正确的前文上下文
+        # 使用 item.id（数据库主键）而非 id(obj)，确保跨上下文对象身份稳定
+        project_index: dict[int, int] = {}
+        if project_items:
+            for idx, proj_item in enumerate(project_items):
+                item_id = proj_item.id
+                if isinstance(item_id, int) and item_id > 0:
+                    project_index[item_id] = idx
+
         final_status = "FAILED"
         capturer: GameCapture | None = None
 
@@ -249,11 +268,18 @@ class ReviewEngine(Base):
 
                     item = items[i]
 
-                    # 收集上文（利用 context_items 提供的前文）
+                    # 收集上文：当 project_items 可用时从完整工程列表中独立查找，
+                    # 确保非连续选中行的每条都能获得正确的前文上下文
                     preceding_count = config.review_preceding_lines
-                    abs_idx = offset + i
-                    start_idx = max(0, abs_idx - preceding_count)
-                    precedings = all_items[start_idx:abs_idx]
+                    precedings = self.resolve_preceding_items(
+                        item=item,
+                        index=i,
+                        offset=offset,
+                        all_items=all_items,
+                        project_items=project_items,
+                        project_index=project_index,
+                        preceding_count=preceding_count,
+                    )
 
                     # 自动推进游戏并捕获截图
                     screenshot_b64 = ""
@@ -286,6 +312,8 @@ class ReviewEngine(Base):
                         model=model,
                         quality_snapshot=quality_snapshot,
                         max_retries=max_retries,
+                        project_items=project_items,
+                        project_index=project_index,
                     )
 
                     # 尝试使用预取结果；未命中则同步执行
@@ -340,7 +368,13 @@ class ReviewEngine(Base):
                         # 用户可能通过 Ask AI 选择了备选 dst
                         with self.lock:
                             custom_dst = self.custom_dst
-                        self.apply_fix_if_needed(result, item, custom_dst=custom_dst)
+                        self.apply_fix_if_needed(
+                            result,
+                            item,
+                            custom_dst=custom_dst,
+                            config=config,
+                            quality_snapshot=quality_snapshot,
+                        )
 
                     # 跳过视为通过：用户确认原文无需修改，按 PASS 统计
                     skipped = decision == self.DECISION_SKIP
@@ -444,6 +478,8 @@ class ReviewEngine(Base):
         model: dict[str, Any],
         quality_snapshot: QualityRuleSnapshot | None,
         max_retries: int,
+        project_items: list[Item] | None = None,
+        project_index: dict[int, int] | None = None,
     ) -> None:
         """提交一批预取任务到线程池。
 
@@ -461,9 +497,15 @@ class ReviewEngine(Base):
 
             prefetch_item = items[idx]
             preceding_count = config.review_preceding_lines
-            abs_idx = offset + idx
-            pstart = max(0, abs_idx - preceding_count)
-            prefetch_precedings = all_items[pstart:abs_idx]
+            prefetch_precedings = self.resolve_preceding_items(
+                item=prefetch_item,
+                index=idx,
+                offset=offset,
+                all_items=all_items,
+                project_items=project_items,
+                project_index=project_index or {},
+                preceding_count=preceding_count,
+            )
 
             future = executor.submit(
                 self.review_single_item_with_retry,
@@ -477,6 +519,39 @@ class ReviewEngine(Base):
             )
             cache[idx] = future
             submitted += 1
+
+    @staticmethod
+    def resolve_preceding_items(
+        *,
+        item: Item,
+        index: int,
+        offset: int,
+        all_items: list[Item],
+        project_items: list[Item] | None,
+        project_index: dict[int, int],
+        preceding_count: int,
+    ) -> list[Item]:
+        """为单条待审校条目解析前文上下文。
+
+        当 project_items 可用时，从完整工程列表中按该条目的实际位置查找前文，
+        确保非连续选中行也能获得正确的上下文。否则回退到 context_items + items
+        拼接列表的旧逻辑。
+        """
+        if preceding_count <= 0:
+            return []
+
+        if project_items and project_index:
+            item_id = item.id
+            if isinstance(item_id, int) and item_id > 0:
+                proj_idx = project_index.get(item_id, -1)
+                if proj_idx >= 0:
+                    pstart = max(0, proj_idx - preceding_count)
+                    return project_items[pstart:proj_idx]
+
+        # 回退：使用 context_items + items 拼接列表
+        abs_idx = offset + index
+        start_idx = max(0, abs_idx - preceding_count)
+        return all_items[start_idx:abs_idx]
 
     @staticmethod
     def cancel_prefetch_cache(
@@ -605,17 +680,37 @@ class ReviewEngine(Base):
             return self.DECISION_DENY
 
     def apply_fix_if_needed(
-        self, result: ReviewResult, item: Item, *, custom_dst: str = ""
+        self,
+        result: ReviewResult,
+        item: Item,
+        *,
+        custom_dst: str = "",
+        config: Config | None = None,
+        quality_snapshot: QualityRuleSnapshot | None = None,
     ) -> None:
         """若结果为 FIX 且有修正文本，将修正写回数据层。
 
         custom_dst: 用户通过 Ask AI 选择的备选翻译，优先于 result.corrected。
+        config / quality_snapshot: 用于对修正文本应用译后替换和文本保护还原。
         注意：会直接修改 item.dst，使后续上文引用的也是修正后的译文。
         """
         if result.verdict != ReviewVerdict.FIX or not result.corrected:
             return
 
         dst = custom_dst if custom_dst else result.corrected
+
+        # 应用译后替换和文本保护还原，与翻译后处理保持一致
+        if config is not None:
+            dst = TextProcessor.post_process_review_fix(
+                config=config,
+                item=item,
+                corrected_dst=dst,
+                quality_snapshot=quality_snapshot,
+            )
+            # 同步更新 result.corrected，确保 UI 和历史记录显示处理后的文本
+            if not custom_dst:
+                result.corrected = dst
+
         item.set_dst(dst)
         try:
             DataManager.get().save_item(item)

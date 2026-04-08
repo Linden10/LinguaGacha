@@ -622,3 +622,72 @@ class TextProcessor(Base):
         dst_segments = self.collect_non_blank_preserved_segments(dst, rule)
 
         return src_segments == dst_segments
+
+    @classmethod
+    def post_process_review_fix(
+        cls,
+        config: Config,
+        item: Item,
+        corrected_dst: str,
+        quality_snapshot: QualityRuleSnapshot | None = None,
+    ) -> str:
+        """对审校修正文本应用译后替换和文本保护还原。
+
+        审校引擎的 FIX 结果需要经过与翻译一致的后处理，
+        确保译后替换规则和代码段保护在审校流程中也能生效。
+        处理顺序与翻译后处理保持一致：先译后替换，再还原代码段。
+        """
+        processor = cls(config, item, quality_snapshot=quality_snapshot)
+        text_type = item.get_text_type()
+        src_lines = item.get_src().split("\n")
+        dst_lines = corrected_dst.split("\n")
+
+        results: list[str] = []
+        for i, dst_line in enumerate(dst_lines):
+            # 空行直接保留
+            if not dst_line.strip():
+                results.append(dst_line)
+                continue
+
+            # 译后替换
+            dst_line = processor.replace_post_translation(dst_line)
+
+            # 还原前后缀代码段：从原文提取正确的代码段，
+            # 移除修正文本中可能错误保留或丢失的代码段，再重新附加正确版本
+            if i < len(src_lines) and config.auto_process_prefix_suffix_preserved_text:
+                src_line = src_lines[i]
+                if src_line.strip():
+                    prefix_rule = processor.get_re_prefix(
+                        custom=processor.get_text_preserve_custom_enabled(),
+                        text_type=text_type,
+                    )
+                    suffix_rule = processor.get_re_suffix(
+                        custom=processor.get_text_preserve_custom_enabled(),
+                        text_type=text_type,
+                    )
+
+                    # 提取原文中的前后缀代码段
+                    src_prefix_codes: list[str] = []
+                    src_suffix_codes: list[str] = []
+                    if prefix_rule is not None:
+                        _, src_prefix_codes = processor.extract(prefix_rule, src_line)
+                    if suffix_rule is not None:
+                        _, src_suffix_codes = processor.extract(suffix_rule, src_line)
+
+                    # 如果原文有代码段，则对修正文本进行还原
+                    if src_prefix_codes or src_suffix_codes:
+                        # 先移除修正文本中可能已有的同类代码段
+                        if prefix_rule is not None and src_prefix_codes:
+                            dst_line, _ = processor.extract(prefix_rule, dst_line)
+                        if suffix_rule is not None and src_suffix_codes:
+                            dst_line, _ = processor.extract(suffix_rule, dst_line)
+
+                        # 重新附加正确的代码段
+                        if src_prefix_codes:
+                            dst_line = "".join(src_prefix_codes) + dst_line
+                        if src_suffix_codes:
+                            dst_line = dst_line + "".join(src_suffix_codes)
+
+            results.append(dst_line)
+
+        return "\n".join(results)

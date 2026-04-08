@@ -343,6 +343,7 @@ class ProofreadingPage(Base, QWidget):
             self.on_batch_reset_translation_clicked
         )
         self.table_widget.batch_review_clicked.connect(self.on_batch_review_clicked)
+        self.table_widget.sort_changed.connect(self.on_sort_changed)
         self.table_widget.itemSelectionChanged.connect(self.on_table_selection_changed)
         self.table_widget.set_items([], {})
 
@@ -566,6 +567,17 @@ class ProofreadingPage(Base, QWidget):
             self.data_stale = True
             self.schedule_reload("pending")
 
+    # ========== 排序功能 ==========
+    def on_sort_changed(self) -> None:
+        """Modified 列排序状态变化时重新排列表格数据。"""
+        if not self.filtered_items:
+            return
+        sort_state = self.table_widget.get_sort_state()
+        display_items = ProofreadingTableWidget.sort_items_by_modified(
+            self.filtered_items, sort_state
+        )
+        self.table_widget.set_items(display_items, self.warning_map)
+
     # ========== 筛选功能 ==========
     def on_filter_clicked(self) -> None:
         """筛选按钮点击"""
@@ -675,8 +687,14 @@ class ProofreadingPage(Base, QWidget):
         self.indeterminate_hide()
         self.filtered_items = filtered
 
+        # 按 Modified 列排序状态对筛选结果排序
+        sort_state = self.table_widget.get_sort_state()
+        display_items = ProofreadingTableWidget.sort_items_by_modified(
+            self.filtered_items, sort_state
+        )
+
         # 分页已迁移为无限滚动：筛选完成后一次性设置数据源，由 TableModel 负责 lazyload。
-        self.table_widget.set_items(self.filtered_items, self.warning_map)
+        self.table_widget.set_items(display_items, self.warning_map)
         if not self.filtered_items:
             self.current_item = None
             self.current_row_index = -1
@@ -1908,39 +1926,18 @@ class ProofreadingPage(Base, QWidget):
         if self.is_readonly or not items:
             return
 
-        # 从工程数据中收集第一条选中条目之前的上文，为审校提供前文上下文
-        context_items = self.gather_review_context(items[0])
+        # 传递完整工程条目列表，让引擎为每条选中行独立查找前文上下文，
+        # 解决非连续选中行的上下文缺失问题
+        project_items = DataManager.get().get_all_items()
 
         self.emit(
             Base.Event.REVIEW_TASK,
             {
                 "sub_event": Base.SubEvent.REQUEST,
                 "items": items,
-                "context_items": context_items,
+                "project_items": project_items,
             },
         )
-
-    def gather_review_context(self, first_item: Item) -> list[Item]:
-        """从工程数据中收集 first_item 之前的条目，作为审校上文。"""
-        config = Config().load()
-        preceding_count = config.review_preceding_lines
-        if preceding_count <= 0:
-            return []
-
-        all_items = DataManager.get().get_all_items()
-
-        # 找到 first_item 在全局列表中的位置
-        target_idx = -1
-        for idx, candidate in enumerate(all_items):
-            if candidate is first_item:
-                target_idx = idx
-                break
-
-        if target_idx <= 0:
-            return []
-
-        start_idx = max(0, target_idx - preceding_count)
-        return all_items[start_idx:target_idx]
 
     # ========== 重新翻译功能 ==========
     def on_retranslate_clicked(self, item: Item) -> None:

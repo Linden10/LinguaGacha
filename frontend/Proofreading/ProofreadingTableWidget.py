@@ -55,6 +55,7 @@ class ProofreadingTableWidget(TableView):
     )  # (items) 携带上文批量重新翻译
     batch_reset_translation_clicked = Signal(list)  # (items) 批量重置翻译
     batch_review_clicked = Signal(list)  # (items) 发送到 AI 审校
+    sort_changed = Signal()  # Modified 列排序状态变化
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -114,6 +115,9 @@ class ProofreadingTableWidget(TableView):
         # 只读模式标志
         self.readonly = False
 
+        # Modified 列排序状态：SORT_NONE → SORT_DESCENDING → SORT_ASCENDING → SORT_NONE
+        self.sort_state: int = self.SORT_NONE
+
         self.setAlternatingRowColors(True)
 
         self.status_delegate = ProofreadingStatusDelegate(self, self.COL_STATUS)
@@ -121,6 +125,37 @@ class ProofreadingTableWidget(TableView):
 
         selection_model = cast(QItemSelectionModel, self.selectionModel())
         selection_model.selectionChanged.connect(self.on_selection_changed)
+
+        # Modified 列头点击排序
+        header.sectionClicked.connect(self.on_header_clicked)
+
+    def on_header_clicked(self, section: int) -> None:
+        """Modified 列头点击：循环切换排序状态（降序 → 升序 → 默认）。"""
+        if section != self.COL_MODIFIED:
+            return
+        # 三态循环：None → Descending → Ascending → None
+        self.sort_state = (self.sort_state + 1) % 3
+        self.sort_changed.emit()
+
+    def get_sort_state(self) -> int:
+        """获取当前 Modified 列的排序状态。"""
+        return self.sort_state
+
+    @staticmethod
+    def sort_items_by_modified(items: list[Item], sort_state: int) -> list[Item]:
+        """根据排序状态对条目列表排序。
+
+        SORT_NONE 返回原始顺序，
+        SORT_DESCENDING 按 modified_at 降序（最新在前），
+        SORT_ASCENDING 按 modified_at 升序（最早在前）。
+        """
+        if sort_state == ProofreadingTableWidget.SORT_DESCENDING:
+            return sorted(
+                items, key=lambda it: it.get_modified_at() or "", reverse=True
+            )
+        if sort_state == ProofreadingTableWidget.SORT_ASCENDING:
+            return sorted(items, key=lambda it: it.get_modified_at() or "")
+        return items
 
     def on_selection_changed(
         self, selected: QItemSelection, deselected: QItemSelection
