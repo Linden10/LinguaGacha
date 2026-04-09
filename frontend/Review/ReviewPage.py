@@ -363,13 +363,14 @@ class ReviewPage(Base, QWidget):
         # 历史面板（默认隐藏）
         self.history_panel = QWidget(self)
         history_vbox = QVBoxLayout(self.history_panel)
-        history_vbox.setContentsMargins(8, 0, 0, 0)
+        # 右侧留出空间，避免历史列表的滚动条与外层滚动区域的滚动条视觉重叠
+        history_vbox.setContentsMargins(8, 0, 8, 0)
         history_vbox.setSpacing(4)
 
         # 历史面板列表
         self.history_list = ListWidget(self.history_panel)
-        self.history_list.setMinimumWidth(320)
-        self.history_list.setMaximumWidth(480)
+        self.history_list.setMinimumWidth(420)
+        self.history_list.setWordWrap(True)
         history_vbox.addWidget(self.history_list, 1)
 
         # 历史面板操作按钮行
@@ -1567,13 +1568,20 @@ class ReviewPage(Base, QWidget):
         for entry in self.history_entries:
             # FIX 结果显示 old → new 对比；其他仅显示译文摘要
             if entry.verdict == "FIX" and entry.corrected:
-                old_preview = self.truncate_preview(entry.original_dst, 30)
-                new_preview = self.truncate_preview(entry.corrected, 30)
+                old_preview = self.truncate_preview(entry.original_dst, 60)
+                new_preview = self.truncate_preview(entry.corrected, 60)
                 label = f"[{entry.verdict}] {old_preview} → {new_preview}"
+                # 完整内容通过 tooltip 查看
+                tooltip = (
+                    f"[{entry.verdict}]\n{entry.original_dst}\n→\n{entry.corrected}"
+                )
             else:
-                dst_preview = self.truncate_preview(entry.original_dst, 40)
+                dst_preview = self.truncate_preview(entry.original_dst, 80)
                 label = f"[{entry.verdict}] {dst_preview}"
-            self.history_list.addItem(label)
+                tooltip = f"[{entry.verdict}]\n{entry.original_dst}"
+            list_item = QListWidgetItem(label)
+            list_item.setToolTip(tooltip)
+            self.history_list.addItem(list_item)
 
     def update_history_buttons(self) -> None:
         """更新历史面板按钮可用性。"""

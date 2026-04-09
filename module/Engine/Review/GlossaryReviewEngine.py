@@ -203,18 +203,20 @@ class GlossaryReviewEngine(Base):
 
             try:
                 results = task.start()
-                # 检查是否全部是异常结果（所有 reason 都包含异常信息）
-                has_valid = any(
-                    r.verdict != GlossaryReviewResult.Verdict.KEEP or not r.reason
+                # 只在所有条目都未被解析（全部是"未返回结果"的兜底值）时才重试，
+                # AI 合法地判定全部 KEEP 并附带 reason 属于正常结果，不应重试
+                all_fallback = all(
+                    r.verdict == GlossaryReviewResult.Verdict.KEEP
+                    and r.reason == GlossaryReviewTask.FALLBACK_REASON
                     for r in results
                 )
-                if has_valid:
+                if not all_fallback:
                     return results
 
-                # 全部都是 KEEP 且有 reason，可能是请求失败
+                # 全部条目均未解析到有效结果，可能是响应格式异常
                 if attempt < max_retries - 1:
                     LogManager.get().warning(
-                        f"Glossary review attempt {attempt + 1} may have failed, retrying..."
+                        f"Glossary review attempt {attempt + 1} returned no parsed results, retrying..."
                     )
                     time.sleep(1)
                     continue
