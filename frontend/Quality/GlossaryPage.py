@@ -489,9 +489,9 @@ class GlossaryPage(QualityRulePageBase):
                 )
             )
 
-        # 推送进度 toast
+        # 推送进度 toast（使用 TOAST 事件，PROGRESS_TOAST 需要 sub_event 生命周期管理）
         self.emit(
-            Base.Event.PROGRESS_TOAST,
+            Base.Event.TOAST,
             {
                 "type": Base.ToastType.INFO,
                 "message": Localizer.get()

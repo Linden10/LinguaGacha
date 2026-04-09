@@ -536,9 +536,14 @@ class ReviewEngine(Base):
         当 project_items 可用时，从完整工程列表中按该条目的实际位置查找前文，
         确保非连续选中行也能获得正确的上下文。否则回退到 context_items + items
         拼接列表的旧逻辑。
+
+        在两种路径中都仅保留同一文件内的前文条目，避免跨文件边界时
+        上一个文件末尾的译文被 AI 误用作新文件首行的修正内容。
         """
         if preceding_count <= 0:
             return []
+
+        current_file = item.get_file_path()
 
         if project_items and project_index:
             item_id = item.id
@@ -546,12 +551,16 @@ class ReviewEngine(Base):
                 proj_idx = project_index.get(item_id, -1)
                 if proj_idx >= 0:
                     pstart = max(0, proj_idx - preceding_count)
-                    return project_items[pstart:proj_idx]
+                    candidates = project_items[pstart:proj_idx]
+                    # 仅保留同一文件内的前文
+                    return [c for c in candidates if c.get_file_path() == current_file]
 
         # 回退：使用 context_items + items 拼接列表
         abs_idx = offset + index
         start_idx = max(0, abs_idx - preceding_count)
-        return all_items[start_idx:abs_idx]
+        candidates = all_items[start_idx:abs_idx]
+        # 仅保留同一文件内的前文，防止跨文件上下文泄漏
+        return [c for c in candidates if c.get_file_path() == current_file]
 
     @staticmethod
     def cancel_prefetch_cache(
