@@ -207,7 +207,7 @@ class GlossaryReviewEngine(Base):
                 # AI 合法地判定全部 KEEP 并附带 reason 属于正常结果，不应重试
                 all_fallback = all(
                     r.verdict == GlossaryReviewResult.Verdict.KEEP
-                    and r.reason == "No review result returned for this entry"
+                    and r.reason == GlossaryReviewTask.FALLBACK_REASON
                     for r in results
                 )
                 if not all_fallback:

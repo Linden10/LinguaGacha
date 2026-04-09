@@ -20,6 +20,9 @@ class GlossaryReviewTask:
     将一批术语条目（src/dst/info）发给 AI，让 AI 判定每条是否保留、修正或移除。
     """
 
+    # 当 AI 响应中无法匹配到某条目的审校结果时使用的兜底 reason
+    FALLBACK_REASON: str = "No review result returned for this entry"
+
     # 审校结论 JSON 行的正则匹配
     VERDICT_PATTERN: re.Pattern[str] = re.compile(
         r'"(?:verdict|VERDICT)"\s*:\s*"(KEEP|FIX|REMOVE)"'
@@ -158,7 +161,7 @@ class GlossaryReviewTask:
                         src=src,
                         dst=dst,
                         verdict=GlossaryReviewResult.Verdict.KEEP,
-                        reason="No review result returned for this entry",
+                        reason=self.FALLBACK_REASON,
                     )
                 )
 
