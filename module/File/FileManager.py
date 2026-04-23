@@ -10,10 +10,12 @@ from model.Project import Project
 from module.Config import Config
 from module.Data.DataManager import DataManager
 from module.File.ASS import ASS
+from module.File.CAGECSV import CAGECSV
 from module.File.EPUB.EPUB import EPUB
 from module.File.KVJSON import KVJSON
 from module.File.MD import MD
 from module.File.MESSAGEJSON import MESSAGEJSON
+from module.File.ORIMESSAGEJSON import ORIMESSAGEJSON
 from module.File.RenPy.RenPy import RenPy
 from module.File.SRT import SRT
 from module.File.TRANS.TRANS import TRANS
@@ -73,6 +75,12 @@ class FileManager(Base):
                 )
             )
             items.extend(
+                CAGECSV(self.config).read_from_path(
+                    [path for path in paths if path.lower().endswith(".csv")],
+                    base_path,
+                )
+            )
+            items.extend(
                 ASS(self.config).read_from_path(
                     [path for path in paths if path.lower().endswith(".ass")],
                     base_path,
@@ -121,6 +129,12 @@ class FileManager(Base):
                 )
             )
             items.extend(
+                ORIMESSAGEJSON(self.config).read_from_path(
+                    [path for path in paths if path.lower().endswith(".json")],
+                    base_path,
+                )
+            )
+            items.extend(
                 MESSAGEJSON(self.config).read_from_path(
                     [path for path in paths if path.lower().endswith(".json")],
                     base_path,
@@ -139,6 +153,8 @@ class FileManager(Base):
             items.extend(MD(self.config).read_from_stream(content, rel_path))
         elif path_lower.endswith(".txt"):
             items.extend(TXT(self.config).read_from_stream(content, rel_path))
+        elif path_lower.endswith(".csv"):
+            items.extend(CAGECSV(self.config).read_from_stream(content, rel_path))
         elif path_lower.endswith(".ass"):
             items.extend(ASS(self.config).read_from_stream(content, rel_path))
         elif path_lower.endswith(".srt"):
@@ -162,9 +178,16 @@ class FileManager(Base):
             if kv_items:
                 items.extend(kv_items)
             else:
-                items.extend(
-                    MESSAGEJSON(self.config).read_from_stream(content, rel_path)
+                # 再尝试 ori/message 元数据保留格式
+                ori_message_items = ORIMESSAGEJSON(self.config).read_from_stream(
+                    content, rel_path
                 )
+                if ori_message_items:
+                    items.extend(ori_message_items)
+                else:
+                    items.extend(
+                        MESSAGEJSON(self.config).read_from_stream(content, rel_path)
+                    )
 
         return items
 
@@ -191,6 +214,7 @@ class FileManager(Base):
             with dm.timestamp_suffix_context():
                 MD(self.config).write_to_path(items)
                 TXT(self.config).write_to_path(items)
+                CAGECSV(self.config).write_to_path(items)
                 ASS(self.config).write_to_path(items)
                 SRT(self.config).write_to_path(items)
                 EPUB(self.config).write_to_path(items)
@@ -199,6 +223,7 @@ class FileManager(Base):
                 RenPy(self.config).write_to_path(items)
                 TRANS(self.config).write_to_path(items)
                 KVJSON(self.config).write_to_path(items)
+                ORIMESSAGEJSON(self.config).write_to_path(items)
                 MESSAGEJSON(self.config).write_to_path(items)
 
                 # 在上下文内获取路径，确保包含时间戳后缀

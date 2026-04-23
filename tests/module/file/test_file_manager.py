@@ -28,6 +28,7 @@ def test_read_from_path_dispatches_all_supported_extensions(
     files = [
         "a.MD",
         "b.txt",
+        "b2.csv",
         "c.ass",
         "d.srt",
         "e.epub",
@@ -67,6 +68,7 @@ def test_read_from_path_dispatches_all_supported_extensions(
 
     monkeypatch.setattr("module.File.FileManager.MD", build_reader("md"))
     monkeypatch.setattr("module.File.FileManager.TXT", build_reader("txt"))
+    monkeypatch.setattr("module.File.FileManager.CAGECSV", build_reader("cagecsv"))
     monkeypatch.setattr("module.File.FileManager.ASS", build_reader("ass"))
     monkeypatch.setattr("module.File.FileManager.SRT", build_reader("srt"))
     monkeypatch.setattr("module.File.FileManager.EPUB", build_reader("epub"))
@@ -76,15 +78,19 @@ def test_read_from_path_dispatches_all_supported_extensions(
     monkeypatch.setattr("module.File.FileManager.TRANS", build_reader("trans"))
     monkeypatch.setattr("module.File.FileManager.KVJSON", build_reader("kvjson"))
     monkeypatch.setattr(
+        "module.File.FileManager.ORIMESSAGEJSON", build_reader("orimessagejson")
+    )
+    monkeypatch.setattr(
         "module.File.FileManager.MESSAGEJSON", build_reader("messagejson")
     )
 
     _, items = FileManager(config).read_from_path(str(root_path))
 
-    assert len(items) == 11
+    assert len(items) == 13
     assert calls["md"][1] == str(root_path)
     assert calls["md"][0][0].endswith("/a.MD")
     assert calls["txt"][0][0].endswith("/b.txt")
+    assert calls["cagecsv"][0][0].endswith("/b2.csv")
     assert calls["ass"][0][0].endswith("/c.ass")
     assert calls["srt"][0][0].endswith("/d.srt")
     assert calls["epub"][0][0].endswith("/e.epub")
@@ -93,6 +99,7 @@ def test_read_from_path_dispatches_all_supported_extensions(
     assert calls["renpy"][0][0].endswith("/g.rpy")
     assert calls["trans"][0][0].endswith("/h.trans")
     assert calls["kvjson"][0][0].endswith("/i.json")
+    assert calls["orimessagejson"][0][0].endswith("/i.json")
     assert calls["messagejson"][0][0].endswith("/i.json")
 
 
@@ -126,6 +133,7 @@ def test_read_from_path_accepts_single_file_path(
 
     monkeypatch.setattr("module.File.FileManager.MD", build_reader("md"))
     monkeypatch.setattr("module.File.FileManager.TXT", build_reader("txt"))
+    monkeypatch.setattr("module.File.FileManager.CAGECSV", build_reader("cagecsv"))
     monkeypatch.setattr("module.File.FileManager.ASS", build_reader("ass"))
     monkeypatch.setattr("module.File.FileManager.SRT", build_reader("srt"))
     monkeypatch.setattr("module.File.FileManager.EPUB", build_reader("epub"))
@@ -134,6 +142,9 @@ def test_read_from_path_accepts_single_file_path(
     monkeypatch.setattr("module.File.FileManager.RenPy", build_reader("renpy"))
     monkeypatch.setattr("module.File.FileManager.TRANS", build_reader("trans"))
     monkeypatch.setattr("module.File.FileManager.KVJSON", build_reader("kvjson"))
+    monkeypatch.setattr(
+        "module.File.FileManager.ORIMESSAGEJSON", build_reader("orimessagejson")
+    )
     monkeypatch.setattr(
         "module.File.FileManager.MESSAGEJSON", build_reader("messagejson")
     )
@@ -219,7 +230,7 @@ def test_parse_asset_falls_back_between_kv_and_message_json(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    called: dict[str, int] = {"kv": 0, "message": 0}
+    called: dict[str, int] = {"kv": 0, "orimessage": 0, "message": 0}
 
     class KvEmpty:
         def __init__(self, _: Config) -> None:
@@ -229,6 +240,16 @@ def test_parse_asset_falls_back_between_kv_and_message_json(
             del content
             del rel_path
             called["kv"] += 1
+            return []
+
+    class OriMessageEmpty:
+        def __init__(self, _: Config) -> None:
+            pass
+
+        def read_from_stream(self, content: bytes, rel_path: str) -> list[Item]:
+            del content
+            del rel_path
+            called["orimessage"] += 1
             return []
 
     class MessageReader:
@@ -242,19 +263,20 @@ def test_parse_asset_falls_back_between_kv_and_message_json(
             return [Item.from_dict({"src": "message"})]
 
     monkeypatch.setattr("module.File.FileManager.KVJSON", KvEmpty)
+    monkeypatch.setattr("module.File.FileManager.ORIMESSAGEJSON", OriMessageEmpty)
     monkeypatch.setattr("module.File.FileManager.MESSAGEJSON", MessageReader)
 
     items = FileManager(config).parse_asset("a.json", b"bytes")
 
     assert [item.get_src() for item in items] == ["message"]
-    assert called == {"kv": 1, "message": 1}
+    assert called == {"kv": 1, "orimessage": 1, "message": 1}
 
 
 def test_parse_asset_uses_kvjson_when_it_returns_items(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    called: dict[str, int] = {"kv": 0, "message": 0}
+    called: dict[str, int] = {"kv": 0, "orimessage": 0, "message": 0}
 
     class KvReader:
         def __init__(self, _: Config) -> None:
@@ -277,12 +299,59 @@ def test_parse_asset_uses_kvjson_when_it_returns_items(
             return [Item.from_dict({"src": "message"})]
 
     monkeypatch.setattr("module.File.FileManager.KVJSON", KvReader)
+    monkeypatch.setattr("module.File.FileManager.ORIMESSAGEJSON", MessageReader)
     monkeypatch.setattr("module.File.FileManager.MESSAGEJSON", MessageReader)
 
     items = FileManager(config).parse_asset("a.json", b"bytes")
 
     assert [item.get_src() for item in items] == ["kv"]
-    assert called == {"kv": 1, "message": 0}
+    assert called == {"kv": 1, "orimessage": 0, "message": 0}
+
+
+def test_parse_asset_uses_orimessagejson_before_messagejson(
+    config: Config,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: dict[str, int] = {"kv": 0, "orimessage": 0, "message": 0}
+
+    class KvEmpty:
+        def __init__(self, _: Config) -> None:
+            pass
+
+        def read_from_stream(self, content: bytes, rel_path: str) -> list[Item]:
+            del content
+            del rel_path
+            called["kv"] += 1
+            return []
+
+    class OriMessageReader:
+        def __init__(self, _: Config) -> None:
+            pass
+
+        def read_from_stream(self, content: bytes, rel_path: str) -> list[Item]:
+            del content
+            del rel_path
+            called["orimessage"] += 1
+            return [Item.from_dict({"src": "orimessage"})]
+
+    class MessageReader:
+        def __init__(self, _: Config) -> None:
+            pass
+
+        def read_from_stream(self, content: bytes, rel_path: str) -> list[Item]:
+            del content
+            del rel_path
+            called["message"] += 1
+            return [Item.from_dict({"src": "message"})]
+
+    monkeypatch.setattr("module.File.FileManager.KVJSON", KvEmpty)
+    monkeypatch.setattr("module.File.FileManager.ORIMESSAGEJSON", OriMessageReader)
+    monkeypatch.setattr("module.File.FileManager.MESSAGEJSON", MessageReader)
+
+    items = FileManager(config).parse_asset("a.json", b"bytes")
+
+    assert [item.get_src() for item in items] == ["orimessage"]
+    assert called == {"kv": 1, "orimessage": 1, "message": 0}
 
 
 @pytest.mark.parametrize(
@@ -290,6 +359,7 @@ def test_parse_asset_uses_kvjson_when_it_returns_items(
     [
         ("a.md", "md"),
         ("a.txt", "txt"),
+        ("a.csv", "cagecsv"),
         ("a.ass", "ass"),
         ("a.srt", "srt"),
         ("a.epub", "epub"),
@@ -314,6 +384,7 @@ def test_parse_asset_dispatches_simple_extensions(
 
     monkeypatch.setattr("module.File.FileManager.MD", Reader)
     monkeypatch.setattr("module.File.FileManager.TXT", Reader)
+    monkeypatch.setattr("module.File.FileManager.CAGECSV", Reader)
     monkeypatch.setattr("module.File.FileManager.ASS", Reader)
     monkeypatch.setattr("module.File.FileManager.SRT", Reader)
     monkeypatch.setattr("module.File.FileManager.EPUB", Reader)
@@ -378,6 +449,7 @@ def test_write_to_path_calls_all_writers_and_returns_output(
     )
     monkeypatch.setattr("module.File.FileManager.MD", build_writer("md"))
     monkeypatch.setattr("module.File.FileManager.TXT", build_writer("txt"))
+    monkeypatch.setattr("module.File.FileManager.CAGECSV", build_writer("cagecsv"))
     monkeypatch.setattr("module.File.FileManager.ASS", build_writer("ass"))
     monkeypatch.setattr("module.File.FileManager.SRT", build_writer("srt"))
     monkeypatch.setattr("module.File.FileManager.EPUB", build_writer("epub"))
@@ -386,6 +458,9 @@ def test_write_to_path_calls_all_writers_and_returns_output(
     monkeypatch.setattr("module.File.FileManager.RenPy", build_writer("renpy"))
     monkeypatch.setattr("module.File.FileManager.TRANS", build_writer("trans"))
     monkeypatch.setattr("module.File.FileManager.KVJSON", build_writer("kvjson"))
+    monkeypatch.setattr(
+        "module.File.FileManager.ORIMESSAGEJSON", build_writer("orimessagejson")
+    )
     monkeypatch.setattr(
         "module.File.FileManager.MESSAGEJSON", build_writer("messagejson")
     )
@@ -396,6 +471,7 @@ def test_write_to_path_calls_all_writers_and_returns_output(
     assert called == {
         "md": 1,
         "txt": 1,
+        "cagecsv": 1,
         "ass": 1,
         "srt": 1,
         "epub": 1,
@@ -404,6 +480,7 @@ def test_write_to_path_calls_all_writers_and_returns_output(
         "renpy": 1,
         "trans": 1,
         "kvjson": 1,
+        "orimessagejson": 1,
         "messagejson": 1,
     }
 

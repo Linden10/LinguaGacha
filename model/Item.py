@@ -47,7 +47,9 @@ class Item:
         RENPY = "RENPY"  # .rpy RenPy
         TRANS = "TRANS"  # .trans Translator++
         KVJSON = "KVJSON"  # .json MTool
+        ORIMESSAGEJSON = "ORIMESSAGEJSON"  # .json ori/message 元数据保留格式
         MESSAGEJSON = "MESSAGEJSON"  # .json SExtractor
+        CAGECSV = "CAGECSV"  # .csv CAGE 引擎脚本
 
     class TextType(StrEnum):
         NONE = "NONE"  # 无类型，即纯文本
@@ -140,6 +142,7 @@ class Item:
             in (
                 __class__.FileType.XLSX,
                 __class__.FileType.KVJSON,
+                __class__.FileType.ORIMESSAGEJSON,
                 __class__.FileType.MESSAGEJSON,
             )
             and self.get_text_type() == __class__.TextType.NONE
