@@ -83,7 +83,6 @@ class ORIMESSAGEJSON(Base):
                         "text_type": Item.TextType.KAG,
                         "status": status,
                         "extra_field": {
-                            "row_index": row_index,
                             "original_entry": dict(entry_raw),
                         },
                     }
@@ -167,7 +166,7 @@ class ORIMESSAGEJSON(Base):
 
             if self.is_ori_message_json(json_data):
                 return [
-                    dict(entry_raw) if isinstance(entry_raw, dict) else {}
+                    dict(entry_raw)
                     for entry_raw in json_data
                 ]
 
@@ -176,15 +175,13 @@ class ORIMESSAGEJSON(Base):
         for item in group_items:
             extra_field_raw = item.get_extra_field()
             extra_field = extra_field_raw if isinstance(extra_field_raw, dict) else {}
-            row_index_raw = extra_field.get("row_index")
             original_entry_raw = extra_field.get("original_entry")
             if (
-                not isinstance(row_index_raw, int)
-                or not isinstance(original_entry_raw, dict)
-                or row_index_raw < 0
+                not isinstance(original_entry_raw, dict)
+                or item.get_row() < 0
             ):
                 continue
-            result_rows[row_index_raw] = dict(original_entry_raw)
+            result_rows[item.get_row()] = dict(original_entry_raw)
 
         if not result_rows:
             return None

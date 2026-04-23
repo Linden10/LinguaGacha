@@ -97,11 +97,11 @@ class CAGECSV(Base):
             if not self.is_cage_header(fieldnames):
                 continue
 
-            snapshots: dict[int, dict[str, str | None]] = {}
+            item_translations: dict[int, dict[str, str | None]] = {}
             for item in group_items:
                 name_dst_raw = item.get_name_dst()
                 name_dst = name_dst_raw if isinstance(name_dst_raw, str) else None
-                snapshots[item.get_row()] = {
+                item_translations[item.get_row()] = {
                     "dst": item.get_dst(),
                     "effective_dst": item.get_effective_dst(),
                     "name_dst": name_dst,
@@ -110,7 +110,7 @@ class CAGECSV(Base):
             output_rows: list[dict[str, str]] = []
             for row_index, row in enumerate(reader):
                 entry = dict(row)
-                snapshot = snapshots.get(row_index)
+                snapshot = item_translations.get(row_index)
                 if snapshot is not None:
                     # 仅更新可翻译字段，其他元数据列保持原值。
                     dst = snapshot.get("dst")
