@@ -55,8 +55,6 @@ class CAGECSV(Base):
                 status = Base.ProjectStatus.EXCLUDED
 
             dst = ""
-            if text_value != "":
-                dst = ""
 
             # 仅 %text 非空行作为可翻译文本，控制行仍保留为 EXCLUDED 以便可视追踪。
             items.append(

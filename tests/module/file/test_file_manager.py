@@ -86,6 +86,7 @@ def test_read_from_path_dispatches_all_supported_extensions(
 
     _, items = FileManager(config).read_from_path(str(root_path))
 
+    # 11（原有）+ 1（CSV handler）+ 1（ori/message JSON handler）
     assert len(items) == 13
     assert calls["md"][1] == str(root_path)
     assert calls["md"][0][0].endswith("/a.MD")

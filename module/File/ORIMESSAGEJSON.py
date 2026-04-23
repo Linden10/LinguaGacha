@@ -113,7 +113,7 @@ class ORIMESSAGEJSON(Base):
             if result_rows is None:
                 continue
 
-            # 仅覆盖 message 字段，其他字段保持原样。
+            # 仅覆盖 message 字段，其他字段保持原样；该映射仅在单文件作用域内构建一次。
             item_by_row = {item.get_row(): item for item in group_items}
             for row_index, entry_raw in enumerate(result_rows):
                 entry = entry_raw if isinstance(entry_raw, dict) else {}
