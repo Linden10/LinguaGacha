@@ -44,6 +44,9 @@ class CAGECSV(Base):
         if not self.is_cage_header(fieldnames):
             return items
 
+        # 追踪上一个出场角色，仅在角色切换时注入姓名，避免相邻台词重复标注。
+        prev_name: str = ""
+
         for row_index, row in enumerate(reader):
             text_raw = row.get("%text", "")
             text_value = text_raw if isinstance(text_raw, str) else ""
@@ -56,14 +59,22 @@ class CAGECSV(Base):
 
             dst = ""
 
+            # 仅当角色发生切换时才携带姓名，连续同角色台词不重复注入。
+            name_changed = name_value != "" and name_value != prev_name
+            if name_value != "":
+                prev_name = name_value
+            elif text_value != "":
+                # 旁白等无姓名行重置追踪，使下次出场无论是否同一角色都重新注入姓名。
+                prev_name = ""
+
             # 仅 %text 非空行作为可翻译文本，控制行仍保留为 EXCLUDED 以便可视追踪。
             items.append(
                 Item.from_dict(
                     {
                         "src": text_value,
                         "dst": dst,
-                        "name_src": name_value if name_value != "" else None,
-                        "name_dst": name_value if name_value != "" else None,
+                        "name_src": name_value if name_changed else None,
+                        "name_dst": name_value if name_changed else None,
                         "row": row_index,
                         "file_type": Item.FileType.CAGECSV,
                         "file_path": rel_path,
