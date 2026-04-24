@@ -16,6 +16,9 @@ class CAGECSV(Base):
     # CAGE 引擎是日文游戏引擎，输出文件只会是 cp932 或 UTF-8，不会是中文编码。
     CHINESE_ENCODINGS: frozenset[str] = frozenset({"gb18030", "gbk", "gb2312", "big5"})
 
+    # 角色切换时插入的姓名行标记，用于在校对页可视化说话人，并在写回时确定 %name 列译文。
+    NAME_ROW_EXTRA_FIELD: str = "name_row"
+
     def __init__(self, config: Config) -> None:
         super().__init__()
 
@@ -84,6 +87,25 @@ class CAGECSV(Base):
                 # 文本为空的控制行（text_value == ""）不重置，避免打断连续对话序列。
                 prev_name = ""
 
+            # 角色切换时，在文本行前插入一条独立的姓名行（extra_field="name_row"），
+            # 使校对页能直接看到说话人，同时该行参与翻译以获得译名（通过词汇表或 AI）。
+            # 控制行（text_value == ""）不插入，因为没有对应的对话文本。
+            if name_changed and text_value != "":
+                items.append(
+                    Item.from_dict(
+                        {
+                            "src": name_value,
+                            "dst": "",
+                            "extra_field": __class__.NAME_ROW_EXTRA_FIELD,
+                            "row": row_index,
+                            "file_type": Item.FileType.CAGECSV,
+                            "file_path": rel_path,
+                            "text_type": Item.TextType.KAG,
+                            "status": Base.ProjectStatus.NONE,
+                        }
+                    )
+                )
+
             # 仅 %text 非空行作为可翻译文本，控制行仍保留为 EXCLUDED 以便可视追踪。
             items.append(
                 Item.from_dict(
@@ -128,20 +150,33 @@ class CAGECSV(Base):
                 continue
 
             item_translations: dict[int, dict[str, str | None]] = {}
-            # 构建姓名译名表：从携带 name_src/name_dst 的首次出场行中提取，
-            # 用于写回时将译名应用到 prev_name 优化跳过的连续同角色行。
+            # 构建姓名译名表：
+            # 1. 优先从已翻译的姓名行（extra_field="name_row", dst != ""）获取。
+            # 2. 兼容旧工程（无姓名行）或姓名行尚未翻译：回退到携带 name_src/name_dst 的首次出场文本行。
+            # 处理顺序为"姓名行先、文本行后"（读取时姓名行插入在文本行之前），
+            # 使 setdefault 在姓名行已提供译名时自动跳过文本行的回退值。
             name_translation: dict[str, str] = {}
             for item in group_items:
-                name_src = item.get_name_src()
-                name_dst_raw = item.get_name_dst()
-                name_dst = name_dst_raw if isinstance(name_dst_raw, str) else None
-                if name_src and isinstance(name_dst, str) and name_dst:
-                    name_translation[name_src] = name_dst
-                item_translations[item.get_row()] = {
-                    "dst": item.get_dst(),
-                    "effective_dst": item.get_effective_dst(),
-                    "name_dst": name_dst,
-                }
+                if item.get_extra_field() == __class__.NAME_ROW_EXTRA_FIELD:
+                    # 姓名行：仅当已有译文时写入译名表，避免以原文覆盖文本行中更准确的译名。
+                    name_src = item.get_src()
+                    name_dst = item.get_dst()
+                    if name_src and isinstance(name_dst, str) and name_dst:
+                        name_translation[name_src] = name_dst
+                else:
+                    # 文本行：同步更新译名表（兼容旧工程），并记录到 item_translations。
+                    name_src = item.get_name_src()
+                    name_dst_raw = item.get_name_dst()
+                    name_dst = name_dst_raw if isinstance(name_dst_raw, str) else None
+                    if name_src and isinstance(name_dst, str) and name_dst:
+                        # 仅在译名表中尚无此角色译名时回退到文本行提供的版本，
+                        # 避免覆盖已由姓名行给出的更准确译名。
+                        name_translation.setdefault(name_src, name_dst)
+                    item_translations[item.get_row()] = {
+                        "dst": item.get_dst(),
+                        "effective_dst": item.get_effective_dst(),
+                        "name_dst": name_dst,
+                    }
 
             output_rows: list[dict[str, str]] = []
             for row_index, row in enumerate(reader):

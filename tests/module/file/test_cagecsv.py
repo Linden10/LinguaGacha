@@ -99,19 +99,29 @@ def test_read_from_stream_parses_cage_csv_and_marks_control_rows_excluded(
 
     items = CAGECSV(config).read_from_stream(payload, "scr_csv/a.csv")
 
-    assert len(items) == 3
+    # Row 0: control row (EXCLUDED text item)
+    # Row 1: actor-change dialogue → name item + text item
+    # Row 2: narrator line → text item only
+    assert len(items) == 4
     assert items[0].get_status() == Base.ProjectStatus.EXCLUDED
+    assert items[0].get_src() == ""
+    # items[1] is the name item inserted for the actor change at row 1
+    assert items[1].get_extra_field() == CAGECSV.NAME_ROW_EXTRA_FIELD
+    assert items[1].get_src() == "かなみ"
     assert items[1].get_status() == Base.ProjectStatus.NONE
-    assert items[1].get_name_src() == "かなみ"
-    assert items[1].get_name_dst() == "かなみ"
-    assert items[2].get_src() == "line,with,comma\nand newline"
+    # items[2] is the dialogue text item at row 1
+    assert items[2].get_status() == Base.ProjectStatus.NONE
+    assert items[2].get_name_src() == "かなみ"
+    assert items[2].get_name_dst() == "かなみ"
+    assert items[3].get_src() == "line,with,comma\nand newline"
 
 
 def test_read_from_stream_injects_name_only_on_actor_change(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """角色相邻台词中只有第一行携带姓名，角色切换時才再次注入。"""
+    """角色相邻台词中只有第一行携带姓名，角色切換時才再次注入。
+    每次角色切換時都額外插入一條姓名行（extra_field="name_row"）。"""
     monkeypatch.setattr(
         "module.File.CAGECSV.TextHelper.get_encoding",
         lambda **_: "utf-8",
@@ -129,17 +139,34 @@ def test_read_from_stream_injects_name_only_on_actor_change(
 
     items = CAGECSV(config).read_from_stream(payload, "a.csv")
 
-    assert len(items) == 5
+    # 3 actor-changes (かなみ row0, 主人公 row3, かなみ row4) → 3 name items + 5 text items = 8
+    assert len(items) == 8
+
+    # Extract text items (not name rows) in order to verify name_src injection
+    text_items = [
+        item for item in items if item.get_extra_field() != CAGECSV.NAME_ROW_EXTRA_FIELD
+    ]
+    assert len(text_items) == 5
     # かなみ が初登場 → 姓名あり
-    assert items[0].get_name_src() == "かなみ"
+    assert text_items[0].get_name_src() == "かなみ"
     # 連続同キャラ → 姓名なし
-    assert items[1].get_name_src() is None
+    assert text_items[1].get_name_src() is None
     # 旁白 → 姓名なし
-    assert items[2].get_name_src() is None
-    # 主人公 → 姓名あり（actor切換）
-    assert items[3].get_name_src() == "主人公"
+    assert text_items[2].get_name_src() is None
+    # 主人公 → 姓名あり（actor切换）
+    assert text_items[3].get_name_src() == "主人公"
     # かなみ 再登場（旁白でリセット済み） → 姓名あり
-    assert items[4].get_name_src() == "かなみ"
+    assert text_items[4].get_name_src() == "かなみ"
+
+    # Verify name items carry the right src and status
+    name_items = [
+        item for item in items if item.get_extra_field() == CAGECSV.NAME_ROW_EXTRA_FIELD
+    ]
+    assert len(name_items) == 3
+    assert name_items[0].get_src() == "かなみ"
+    assert name_items[1].get_src() == "主人公"
+    assert name_items[2].get_src() == "かなみ"
+    assert all(n.get_status() == Base.ProjectStatus.NONE for n in name_items)
 
 
 def test_read_from_stream_returns_empty_when_header_not_matched(
@@ -171,9 +198,14 @@ def test_read_from_stream_falls_back_to_cp932_when_chinese_encoding_detected(
     items = CAGECSV(config).read_from_stream(payload, "scr_csv/a.csv")
 
     # correct decoding via cp932 fallback → Japanese text must be intact
-    assert len(items) == 3
-    assert items[1].get_src() == "「あれ、お＜兄＝義兄＞ちゃん……？」"
-    assert items[1].get_name_src() == "かなみ"
+    # Row 0: control row; Row 1: name item + text item; Row 2: narrator text item
+    assert len(items) == 4
+    # items[1] is the name item for the actor change at row 1
+    assert items[1].get_extra_field() == CAGECSV.NAME_ROW_EXTRA_FIELD
+    assert items[1].get_src() == "かなみ"
+    # items[2] is the dialogue text item at row 1
+    assert items[2].get_src() == "「あれ、お＜兄＝義兄＞ちゃん……？」"
+    assert items[2].get_name_src() == "かなみ"
 
 
 def test_write_to_path_updates_only_name_and_text_and_preserves_metadata_columns(
@@ -357,6 +389,70 @@ def test_write_to_path_propagates_translated_name_to_consecutive_actor_rows(
     # 所有行的姓名均应为译名，而非原始日文
     assert [row["%name"] for row in rows] == ["Kanami", "Kanami", "Kanami"]
     assert [row["%text"] for row in rows] == ["line1", "line2", "line3"]
+
+
+def test_write_to_path_uses_name_item_dst_for_name_translation(
+    config: Config,
+    dummy_data_manager: DummyDataManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """姓名行（extra_field="name_row"）的译文优先于文本行的 name_dst 用于写回 %name 列。"""
+    monkeypatch.setattr(
+        "module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager
+    )
+    monkeypatch.setattr(
+        "module.File.CAGECSV.TextHelper.get_encoding",
+        lambda **_: "utf-8",
+    )
+    rel_path = "scr_csv/name_row.csv"
+    source_text = "%line,%seq,%name,%text\r\n1,,かなみ,台词1\r\n2,,かなみ,台词2\r\n"
+    dummy_data_manager.assets[rel_path] = source_text.encode("utf-8")
+
+    items = [
+        # 姓名行：AI 已翻译，dst="Kanami"
+        Item.from_dict(
+            {
+                "src": "かなみ",
+                "dst": "Kanami",
+                "extra_field": CAGECSV.NAME_ROW_EXTRA_FIELD,
+                "row": 0,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+        # 首行文本（actor 切换），name_dst 同样为 "Kanami"
+        Item.from_dict(
+            {
+                "src": "台词1",
+                "dst": "line1",
+                "name_src": "かなみ",
+                "name_dst": "Kanami",
+                "row": 0,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+        # 連続同キャラ行：name_dst=None，依赖 name_translation 补全
+        Item.from_dict(
+            {
+                "src": "台词2",
+                "dst": "line2",
+                "row": 1,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+    ]
+
+    CAGECSV(config).write_to_path(items)
+
+    output_file = Path(dummy_data_manager.get_translated_path()) / rel_path
+    reader = csv.DictReader(
+        io.StringIO(output_file.read_text(encoding="utf-8"), newline="")
+    )
+    rows = list(reader)
+    assert [row["%name"] for row in rows] == ["Kanami", "Kanami"]
+    assert [row["%text"] for row in rows] == ["line1", "line2"]
 
 
 def test_read_from_path_reads_files(
