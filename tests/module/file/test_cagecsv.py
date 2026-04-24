@@ -120,8 +120,8 @@ def test_read_from_stream_injects_name_only_on_actor_change(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """角色相邻台词中只有第一行携带姓名，角色切換時才再次注入。
-    每次角色切換時都額外插入一條姓名行（extra_field="name_row"）。"""
+    """角色相邻台词中只有第一行携带姓名，角色切换时才再次注入。
+    每次角色切换时都额外插入一条独立的姓名行（extra_field="name_row"）。"""
     monkeypatch.setattr(
         "module.File.CAGECSV.TextHelper.get_encoding",
         lambda **_: "utf-8",
