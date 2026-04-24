@@ -31,7 +31,7 @@ class CAGECSV(Base):
                 content.split(b"\n")[0].rstrip(b"\r").decode("ascii")
                 encoding = "cp932"
             except UnicodeDecodeError:
-                # 首行含非 ASCII 字节，说明文件确实是中文编码，保留原始探测结果。
+                # 首行含非 ASCII 字节说明文件确实是中文编码，不能误改为 cp932。
                 pass
         return encoding
 
@@ -135,12 +135,7 @@ class CAGECSV(Base):
                 name_src = item.get_name_src()
                 name_dst_raw = item.get_name_dst()
                 name_dst = name_dst_raw if isinstance(name_dst_raw, str) else None
-                if (
-                    isinstance(name_src, str)
-                    and name_src
-                    and isinstance(name_dst, str)
-                    and name_dst
-                ):
+                if name_src and isinstance(name_dst, str) and name_dst:
                     name_translation[name_src] = name_dst
                 item_translations[item.get_row()] = {
                     "dst": item.get_dst(),
@@ -167,7 +162,8 @@ class CAGECSV(Base):
                     if isinstance(name_dst, str) and name_dst != "":
                         entry["%name"] = name_dst
                     elif name_translation:
-                        # prev_name 优化跳过的连续同角色行，通过译名表补全译名。
+                        # read_from_stream 的 prev_name 优化会跳过连续同角色行的 name_dst，
+                        # 导致这些行没有显式译名；写回时通过译名表补全，确保输出 CSV 的姓名全部被翻译。
                         orig_name = entry.get("%name", "")
                         if orig_name and orig_name in name_translation:
                             entry["%name"] = name_translation[orig_name]

@@ -159,7 +159,8 @@ def test_read_from_stream_falls_back_to_cp932_when_chinese_encoding_detected(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """charset_normalizer が Shift-JIS を中文エンコードと誤検知した場合、cp932 にフォールバックする。"""
+    """CAGE CSV の表头は ASCII のみで構成されるため、中文エンコードとして誤検知された場合は
+    cp932 にフォールバックする。これにより Shift-JIS ファイルがゴミ文字化するのを防ぐ。"""
     # simulate the misdetection: charset_normalizer returns "gb18030"
     monkeypatch.setattr(
         "module.File.CAGECSV.TextHelper.get_encoding",
