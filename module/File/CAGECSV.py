@@ -59,12 +59,14 @@ class CAGECSV(Base):
 
             dst = ""
 
-            # 仅当角色发生切换时才携带姓名，连续同角色台词不重复注入。
+            # name_changed は prev_name 更新前に計算する必要がある（順序依存）。
+            # 連続同キャラ台词では姓名を注入せず、actor切換時のみ注入する。
             name_changed = name_value != "" and name_value != prev_name
             if name_value != "":
                 prev_name = name_value
             elif text_value != "":
-                # 旁白等无姓名行重置追踪，使下次出场无论是否同一角色都重新注入姓名。
+                # 旁白等有文本但无姓名的行重置追踪，使下次出场无论是否同一角色都重新注入姓名。
+                # 文本为空的控制行（text_value == ""）不重置，避免打断连续对话序列。
                 prev_name = ""
 
             # 仅 %text 非空行作为可翻译文本，控制行仍保留为 EXCLUDED 以便可视追踪。
