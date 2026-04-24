@@ -61,6 +61,9 @@ class CAGECSV(Base):
         if not self.is_cage_header(fieldnames):
             return items
 
+        # 追踪上一个出场角色，仅在角色切换时注入姓名，避免相邻台词重复标注。
+        prev_name: str = ""
+
         for row_index, row in enumerate(reader):
             text_raw = row.get("%text", "")
             text_value = text_raw if isinstance(text_raw, str) else ""
@@ -71,14 +74,24 @@ class CAGECSV(Base):
             if text_value == "":
                 status = Base.ProjectStatus.EXCLUDED
 
-            # 每行都携带当前行的角色名（有则填，无则 None），确保译者/LLM 始终知道是谁在说话。
+            # name_changed は prev_name 更新前に計算する必要がある（順序依存）。
+            # 連続同キャラ台词では姓名を注入せず、actor切換時のみ注入する。
+            name_changed = name_value != "" and name_value != prev_name
+            if name_value != "":
+                prev_name = name_value
+            elif text_value != "":
+                # 旁白等有文本但无姓名的行重置追踪，使下次出场无论是否同一角色都重新注入姓名。
+                # 文本为空的控制行（text_value == ""）不重置，避免打断连续对话序列。
+                prev_name = ""
+
+            # 仅 %text 非空行作为可翻译文本，控制行仍保留为 EXCLUDED 以便可视追踪。
             items.append(
                 Item.from_dict(
                     {
                         "src": text_value,
                         "dst": "",
-                        "name_src": name_value if name_value else None,
-                        "name_dst": name_value if name_value else None,
+                        "name_src": name_value if name_changed else None,
+                        "name_dst": name_value if name_changed else None,
                         "row": row_index,
                         "file_type": Item.FileType.CAGECSV,
                         "file_path": rel_path,
@@ -115,9 +128,20 @@ class CAGECSV(Base):
                 continue
 
             item_translations: dict[int, dict[str, str | None]] = {}
+            # 构建姓名译名表：从携带 name_src/name_dst 的首次出场行中提取，
+            # 用于写回时将译名应用到 prev_name 优化跳过的连续同角色行。
+            name_translation: dict[str, str] = {}
             for item in group_items:
+                name_src = item.get_name_src()
                 name_dst_raw = item.get_name_dst()
                 name_dst = name_dst_raw if isinstance(name_dst_raw, str) else None
+                if (
+                    isinstance(name_src, str)
+                    and name_src
+                    and isinstance(name_dst, str)
+                    and name_dst
+                ):
+                    name_translation[name_src] = name_dst
                 item_translations[item.get_row()] = {
                     "dst": item.get_dst(),
                     "effective_dst": item.get_effective_dst(),
@@ -142,6 +166,11 @@ class CAGECSV(Base):
                     name_dst = snapshot.get("name_dst")
                     if isinstance(name_dst, str) and name_dst != "":
                         entry["%name"] = name_dst
+                    elif name_translation:
+                        # prev_name 优化跳过的连续同角色行，通过译名表补全译名。
+                        orig_name = entry.get("%name", "")
+                        if orig_name and orig_name in name_translation:
+                            entry["%name"] = name_translation[orig_name]
 
                 output_rows.append(entry)
 

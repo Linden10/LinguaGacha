@@ -107,16 +107,16 @@ def test_read_from_stream_parses_cage_csv_and_marks_control_rows_excluded(
     assert items[2].get_src() == "line,with,comma\nand newline"
 
 
-def test_read_from_stream_includes_name_for_every_actor_row(
+def test_read_from_stream_injects_name_only_on_actor_change(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """每行台词都携带当前角色的姓名，连续同角色台词也不例外。"""
+    """角色相邻台词中只有第一行携带姓名，角色切换時才再次注入。"""
     monkeypatch.setattr(
         "module.File.CAGECSV.TextHelper.get_encoding",
         lambda **_: "utf-8",
     )
-    # 行顺序：かなみ台词1 → かなみ台词2 → 旁白 → 主人公台词 → かなみ台词3
+    # 行顺序：かなみ台词1 → かなみ台词2 → 旁白 → 主人公台词 → かなみ台词3（旁白でリセット済み）
     rows_text = (
         "%line,%seq,%name,%text\r\n"
         "1,,かなみ,かなみ台词1\r\n"
@@ -130,15 +130,15 @@ def test_read_from_stream_includes_name_for_every_actor_row(
     items = CAGECSV(config).read_from_stream(payload, "a.csv")
 
     assert len(items) == 5
-    # かなみ 初登场 → 姓名あり
+    # かなみ が初登場 → 姓名あり
     assert items[0].get_name_src() == "かなみ"
-    # 連続同キャラでも姓名あり
-    assert items[1].get_name_src() == "かなみ"
+    # 連続同キャラ → 姓名なし
+    assert items[1].get_name_src() is None
     # 旁白 → 姓名なし
     assert items[2].get_name_src() is None
-    # 主人公 → 姓名あり
+    # 主人公 → 姓名あり（actor切換）
     assert items[3].get_name_src() == "主人公"
-    # かなみ 再登场 → 姓名あり
+    # かなみ 再登場（旁白でリセット済み） → 姓名あり
     assert items[4].get_name_src() == "かなみ"
 
 
@@ -288,6 +288,74 @@ def test_write_to_path_preserves_duplicate_text_rows_by_row_order(
     )
     rows = list(reader)
     assert [row["%text"] for row in rows] == ["first", "second"]
+
+
+def test_write_to_path_propagates_translated_name_to_consecutive_actor_rows(
+    config: Config,
+    dummy_data_manager: DummyDataManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """prev_name 最適化で name_dst=None の連続同角色行にも訳名が適用される。"""
+    monkeypatch.setattr(
+        "module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager
+    )
+    monkeypatch.setattr(
+        "module.File.CAGECSV.TextHelper.get_encoding",
+        lambda **_: "utf-8",
+    )
+    rel_path = "scr_csv/consecutive.csv"
+    source_text = (
+        "%line,%seq,%name,%text\r\n"
+        "1,,かなみ,台词1\r\n"
+        "2,,かなみ,台词2\r\n"
+        "3,,かなみ,台词3\r\n"
+    )
+    dummy_data_manager.assets[rel_path] = source_text.encode("utf-8")
+
+    items = [
+        # 首行携带姓名（actor 切换）
+        Item.from_dict(
+            {
+                "src": "台词1",
+                "dst": "line1",
+                "name_src": "かなみ",
+                "name_dst": "Kanami",
+                "row": 0,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+        # 连续同角色行：prev_name 优化跳过，name_dst=None
+        Item.from_dict(
+            {
+                "src": "台词2",
+                "dst": "line2",
+                "row": 1,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+        Item.from_dict(
+            {
+                "src": "台词3",
+                "dst": "line3",
+                "row": 2,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+    ]
+
+    CAGECSV(config).write_to_path(items)
+
+    output_file = Path(dummy_data_manager.get_translated_path()) / rel_path
+    reader = csv.DictReader(
+        io.StringIO(output_file.read_text(encoding="utf-8"), newline="")
+    )
+    rows = list(reader)
+    # 所有行的姓名均应为译名，而非原始日文
+    assert [row["%name"] for row in rows] == ["Kanami", "Kanami", "Kanami"]
+    assert [row["%text"] for row in rows] == ["line1", "line2", "line3"]
 
 
 def test_read_from_path_reads_files(
