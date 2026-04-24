@@ -12,11 +12,28 @@ from module.Text.TextHelper import TextHelper
 class CAGECSV(Base):
     REQUIRED_HEADERS: tuple[str, ...] = ("%line", "%seq", "%name", "%text")
 
+    # charset_normalizer 有时会把 Shift-JIS 字节序列误判为中文编码，尤其是头部含尾随逗号的情况。
+    # CAGE 引擎是日文游戏引擎，输出文件只会是 cp932 或 UTF-8，不会是中文编码。
+    CHINESE_ENCODINGS: frozenset[str] = frozenset({"gb18030", "gbk", "gb2312", "big5"})
+
     def __init__(self, config: Config) -> None:
         super().__init__()
 
         # 初始化
         self.config = config
+
+    # 编码探测：当 charset_normalizer 返回中文编码时，检查首行是否为纯 ASCII；
+    # CAGE CSV 的表头列名均为 ASCII，若首行可作 ASCII 解码则判定为 cp932。
+    def detect_encoding(self, content: bytes) -> str:
+        encoding = TextHelper.get_encoding(content=content, add_sig_to_utf8=True)
+        if encoding in self.CHINESE_ENCODINGS:
+            try:
+                # CAGE CSV 的表头列名均为 ASCII；若首行可作 ASCII 解码，则文件是 Shift-JIS 而非中文编码。
+                content.split(b"\n")[0].rstrip(b"\r").decode("ascii")
+                encoding = "cp932"
+            except UnicodeDecodeError:
+                pass  # 首行非 ASCII，保留原始探测结果
+        return encoding
 
     # 读取
     def read_from_path(self, abs_paths: list[str], input_path: str) -> list[Item]:
@@ -36,16 +53,13 @@ class CAGECSV(Base):
         items: list[Item] = []
 
         # CSV 需要先保留编码，再做结构化解析，避免 Shift-JIS 场景误写回。
-        encoding = TextHelper.get_encoding(content=content, add_sig_to_utf8=True)
+        encoding = self.detect_encoding(content)
         text = content.decode(encoding)
         reader = csv.DictReader(io.StringIO(text, newline=""))
 
         fieldnames = reader.fieldnames
         if not self.is_cage_header(fieldnames):
             return items
-
-        # 追踪上一个出场角色，仅在角色切换时注入姓名，避免相邻台词重复标注。
-        prev_name: str = ""
 
         for row_index, row in enumerate(reader):
             text_raw = row.get("%text", "")
@@ -57,26 +71,14 @@ class CAGECSV(Base):
             if text_value == "":
                 status = Base.ProjectStatus.EXCLUDED
 
-            dst = ""
-
-            # name_changed は prev_name 更新前に計算する必要がある（順序依存）。
-            # 連続同キャラ台词では姓名を注入せず、actor切換時のみ注入する。
-            name_changed = name_value != "" and name_value != prev_name
-            if name_value != "":
-                prev_name = name_value
-            elif text_value != "":
-                # 旁白等有文本但无姓名的行重置追踪，使下次出场无论是否同一角色都重新注入姓名。
-                # 文本为空的控制行（text_value == ""）不重置，避免打断连续对话序列。
-                prev_name = ""
-
-            # 仅 %text 非空行作为可翻译文本，控制行仍保留为 EXCLUDED 以便可视追踪。
+            # 每行都携带当前行的角色名（有则填，无则 None），确保译者/LLM 始终知道是谁在说话。
             items.append(
                 Item.from_dict(
                     {
                         "src": text_value,
-                        "dst": dst,
-                        "name_src": name_value if name_changed else None,
-                        "name_dst": name_value if name_changed else None,
+                        "dst": "",
+                        "name_src": name_value if name_value else None,
+                        "name_dst": name_value if name_value else None,
                         "row": row_index,
                         "file_type": Item.FileType.CAGECSV,
                         "file_path": rel_path,
@@ -91,7 +93,9 @@ class CAGECSV(Base):
     # 写入
     def write_to_path(self, items: list[Item]) -> None:
         output_path = DataManager.get().get_translated_path()
-        target = [item for item in items if item.get_file_type() == Item.FileType.CAGECSV]
+        target = [
+            item for item in items if item.get_file_type() == Item.FileType.CAGECSV
+        ]
 
         group: dict[str, list[Item]] = {}
         for item in target:
@@ -102,7 +106,7 @@ class CAGECSV(Base):
             if original_data is None:
                 continue
 
-            encoding = TextHelper.get_encoding(content=original_data, add_sig_to_utf8=True)
+            encoding = self.detect_encoding(original_data)
             source_text = original_data.decode(encoding)
 
             reader = csv.DictReader(io.StringIO(source_text, newline=""))
@@ -128,7 +132,11 @@ class CAGECSV(Base):
                     # 仅更新可翻译字段，其他元数据列保持原值。
                     dst = snapshot.get("dst")
                     effective_dst = snapshot.get("effective_dst")
-                    if isinstance(dst, str) and dst != "" and isinstance(effective_dst, str):
+                    if (
+                        isinstance(dst, str)
+                        and dst != ""
+                        and isinstance(effective_dst, str)
+                    ):
                         entry["%text"] = effective_dst
 
                     name_dst = snapshot.get("name_dst")
