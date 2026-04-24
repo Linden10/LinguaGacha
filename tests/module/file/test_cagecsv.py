@@ -155,12 +155,35 @@ def test_read_from_stream_returns_empty_when_header_not_matched(
     assert CAGECSV(config).read_from_stream(payload, "a.csv") == []
 
 
+def test_read_from_stream_falls_back_to_cp932_when_chinese_encoding_detected(
+    config: Config,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CAGE CSV の表头は ASCII のみで構成されるため、中文エンコードとして誤検知された場合は
+    cp932 にフォールバックする。これにより Shift-JIS ファイルがゴミ文字化するのを防ぐ。"""
+    # simulate the misdetection: charset_normalizer returns "gb18030"
+    monkeypatch.setattr(
+        "module.File.CAGECSV.TextHelper.get_encoding",
+        lambda **_: "gb18030",
+    )
+    payload = build_cage_csv_text().encode("cp932")
+
+    items = CAGECSV(config).read_from_stream(payload, "scr_csv/a.csv")
+
+    # correct decoding via cp932 fallback → Japanese text must be intact
+    assert len(items) == 3
+    assert items[1].get_src() == "「あれ、お＜兄＝義兄＞ちゃん……？」"
+    assert items[1].get_name_src() == "かなみ"
+
+
 def test_write_to_path_updates_only_name_and_text_and_preserves_metadata_columns(
     config: Config,
     dummy_data_manager: DummyDataManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager)
+    monkeypatch.setattr(
+        "module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager
+    )
     monkeypatch.setattr(
         "module.File.CAGECSV.TextHelper.get_encoding",
         lambda **_: "cp932",
@@ -183,7 +206,7 @@ def test_write_to_path_updates_only_name_and_text_and_preserves_metadata_columns
         Item.from_dict(
             {
                 "src": "「あれ、お＜兄＝義兄＞ちゃん……？」",
-                "dst": "\"Huh, big bro...?\"",
+                "dst": '"Huh, big bro...?"',
                 "name_src": "かなみ",
                 "name_dst": "Kanami",
                 "row": 1,
@@ -214,7 +237,7 @@ def test_write_to_path_updates_only_name_and_text_and_preserves_metadata_columns
     assert rows[0]["%seq"] == "&01ctrl"
     assert rows[0]["%text"] == ""
     assert rows[1]["%name"] == "Kanami"
-    assert rows[1]["%text"] == "\"Huh, big bro...?\""
+    assert rows[1]["%text"] == '"Huh, big bro...?"'
     assert rows[1]["%voice"] == "01kan001_001.wav"
     assert rows[1]["%st_center_name"] == "かなみ"
     assert rows[2]["%name"] == ""
@@ -226,17 +249,15 @@ def test_write_to_path_preserves_duplicate_text_rows_by_row_order(
     dummy_data_manager: DummyDataManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager)
+    monkeypatch.setattr(
+        "module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager
+    )
     monkeypatch.setattr(
         "module.File.CAGECSV.TextHelper.get_encoding",
         lambda **_: "utf-8",
     )
     rel_path = "scr_csv/dup.csv"
-    source_text = (
-        "%line,%seq,%name,%text\r\n"
-        "1,,,same\r\n"
-        "2,,,same\r\n"
-    )
+    source_text = "%line,%seq,%name,%text\r\n1,,,same\r\n2,,,same\r\n"
     dummy_data_manager.assets[rel_path] = source_text.encode("utf-8")
 
     items = [
@@ -263,9 +284,79 @@ def test_write_to_path_preserves_duplicate_text_rows_by_row_order(
     CAGECSV(config).write_to_path(items)
 
     output_file = Path(dummy_data_manager.get_translated_path()) / rel_path
-    reader = csv.DictReader(io.StringIO(output_file.read_text(encoding="utf-8"), newline=""))
+    reader = csv.DictReader(
+        io.StringIO(output_file.read_text(encoding="utf-8"), newline="")
+    )
     rows = list(reader)
     assert [row["%text"] for row in rows] == ["first", "second"]
+
+
+def test_write_to_path_propagates_translated_name_to_consecutive_actor_rows(
+    config: Config,
+    dummy_data_manager: DummyDataManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """prev_name 最適化で name_dst=None の連続同角色行にも訳名が適用される。"""
+    monkeypatch.setattr(
+        "module.File.CAGECSV.DataManager.get", lambda: dummy_data_manager
+    )
+    monkeypatch.setattr(
+        "module.File.CAGECSV.TextHelper.get_encoding",
+        lambda **_: "utf-8",
+    )
+    rel_path = "scr_csv/consecutive.csv"
+    source_text = (
+        "%line,%seq,%name,%text\r\n"
+        "1,,かなみ,台词1\r\n"
+        "2,,かなみ,台词2\r\n"
+        "3,,かなみ,台词3\r\n"
+    )
+    dummy_data_manager.assets[rel_path] = source_text.encode("utf-8")
+
+    items = [
+        # 首行携带姓名（actor 切换）
+        Item.from_dict(
+            {
+                "src": "台词1",
+                "dst": "line1",
+                "name_src": "かなみ",
+                "name_dst": "Kanami",
+                "row": 0,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+        # 连续同角色行：prev_name 优化跳过，name_dst=None
+        Item.from_dict(
+            {
+                "src": "台词2",
+                "dst": "line2",
+                "row": 1,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+        Item.from_dict(
+            {
+                "src": "台词3",
+                "dst": "line3",
+                "row": 2,
+                "file_type": Item.FileType.CAGECSV,
+                "file_path": rel_path,
+            }
+        ),
+    ]
+
+    CAGECSV(config).write_to_path(items)
+
+    output_file = Path(dummy_data_manager.get_translated_path()) / rel_path
+    reader = csv.DictReader(
+        io.StringIO(output_file.read_text(encoding="utf-8"), newline="")
+    )
+    rows = list(reader)
+    # 所有行的姓名均应为译名，而非原始日文
+    assert [row["%name"] for row in rows] == ["Kanami", "Kanami", "Kanami"]
+    assert [row["%text"] for row in rows] == ["line1", "line2", "line3"]
 
 
 def test_read_from_path_reads_files(
