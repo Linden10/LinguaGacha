@@ -28,11 +28,11 @@ class CAGECSV(Base):
         encoding = TextHelper.get_encoding(content=content, add_sig_to_utf8=True)
         if encoding in self.CHINESE_ENCODINGS:
             try:
-                # CAGE CSV 的表头列名均为 ASCII；若首行可作 ASCII 解码，则文件是 Shift-JIS 而非中文编码。
                 content.split(b"\n")[0].rstrip(b"\r").decode("ascii")
                 encoding = "cp932"
             except UnicodeDecodeError:
-                pass  # 首行非 ASCII，保留原始探测结果
+                # 首行含非 ASCII 字节，说明文件确实是中文编码，保留原始探测结果。
+                pass
         return encoding
 
     # 读取
