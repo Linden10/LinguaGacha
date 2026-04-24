@@ -21,6 +21,7 @@ class ProjectService(Base):
     SUPPORTED_EXTENSIONS = {
         ".txt",
         ".md",
+        ".csv",
         ".json",
         ".xlsx",
         ".epub",

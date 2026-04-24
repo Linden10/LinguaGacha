@@ -107,6 +107,41 @@ def test_read_from_stream_parses_cage_csv_and_marks_control_rows_excluded(
     assert items[2].get_src() == "line,with,comma\nand newline"
 
 
+def test_read_from_stream_injects_name_only_on_actor_change(
+    config: Config,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """角色相邻台词中只有第一行携带姓名，角色切换時才再次注入。"""
+    monkeypatch.setattr(
+        "module.File.CAGECSV.TextHelper.get_encoding",
+        lambda **_: "utf-8",
+    )
+    # 行顺序：かなみ台词1 → かなみ台词2 → 旁白 → 主人公台词 → かなみ台词3（旁白でリセット済み）
+    rows_text = (
+        "%line,%seq,%name,%text\r\n"
+        "1,,かなみ,かなみ台词1\r\n"
+        "2,,かなみ,かなみ台词2\r\n"
+        "3,,,旁白\r\n"
+        "4,,主人公,主人公台词\r\n"
+        "5,,かなみ,かなみ台词3\r\n"
+    )
+    payload = rows_text.encode("utf-8")
+
+    items = CAGECSV(config).read_from_stream(payload, "a.csv")
+
+    assert len(items) == 5
+    # かなみ が初登場 → 姓名あり
+    assert items[0].get_name_src() == "かなみ"
+    # 連続同キャラ → 姓名なし
+    assert items[1].get_name_src() is None
+    # 旁白 → 姓名なし
+    assert items[2].get_name_src() is None
+    # 主人公 → 姓名あり（actor切換）
+    assert items[3].get_name_src() == "主人公"
+    # かなみ 再登場（旁白でリセット済み） → 姓名あり
+    assert items[4].get_name_src() == "かなみ"
+
+
 def test_read_from_stream_returns_empty_when_header_not_matched(
     config: Config,
     monkeypatch: pytest.MonkeyPatch,
