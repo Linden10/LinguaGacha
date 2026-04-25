@@ -217,8 +217,15 @@ class CAGECSV(Base):
 
             abs_path = os.path.join(output_path, rel_path)
             os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+            content = io_buffer.getvalue()
+            try:
+                encoded = content.encode(encoding)
+            except UnicodeEncodeError:
+                # 译文包含原始编码无法表示的字符（如 cp932 无法编码 em-dash 等），
+                # 回退到 UTF-8 with BOM，确保文件可被识别和正常使用。
+                encoded = content.encode("utf-8-sig")
             with open(abs_path, "wb") as writer_file:
-                writer_file.write(io_buffer.getvalue().encode(encoding))
+                writer_file.write(encoded)
 
     # 校验 CAGE 头结构，避免误识别普通 CSV
     def is_cage_header(self, fieldnames: list[str] | None) -> bool:
