@@ -3,9 +3,11 @@ import io
 import os
 
 from base.Base import Base
+from base.LogManager import LogManager
 from model.Item import Item
 from module.Config import Config
 from module.Data.DataManager import DataManager
+from module.Localizer.Localizer import Localizer
 from module.Text.TextHelper import TextHelper
 
 
@@ -136,6 +138,7 @@ class CAGECSV(Base):
         for item in target:
             group.setdefault(item.get_file_path(), []).append(item)
 
+        encoding_error_files: list[str] = []
         for rel_path, group_items in group.items():
             original_data = DataManager.get().get_asset_decompressed(rel_path)
             if original_data is None:
@@ -215,17 +218,45 @@ class CAGECSV(Base):
             writer.writeheader()
             writer.writerows(output_rows)
 
-            abs_path = os.path.join(output_path, rel_path)
-            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
             content = io_buffer.getvalue()
             try:
                 encoded = content.encode(encoding)
-            except UnicodeEncodeError:
-                # 译文包含原始编码无法表示的字符（如 cp932 无法编码 em-dash 等），
-                # 回退到 UTF-8 with BOM，确保文件可被识别和正常使用。
-                encoded = content.encode("utf-8-sig")
-            with open(abs_path, "wb") as writer_file:
-                writer_file.write(encoded)
+                # makedirs 和文件写入在编码成功后才执行，
+                # 确保编码失败时不会留下空文件。
+                abs_path = os.path.join(output_path, rel_path)
+                os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                with open(abs_path, "wb") as writer_file:
+                    writer_file.write(encoded)
+            except UnicodeEncodeError as e:
+                # 译文含有原始编码不支持的字符（如 cp932 不支持 em-dash），
+                # 记录详细错误并跳过该文件，避免写出空文件；
+                # 循环结束后统一弹出 Toast 提示用户。
+                LogManager.get().error(
+                    Localizer.get().cagecsv_encoding_error_log.format(FILE=rel_path), e
+                )
+                encoding_error_files.append(rel_path)
+
+        if encoding_error_files:
+            # 生成完成后统一通知用户哪些文件因编码问题被跳过，
+            # 避免在后台线程写入过程中打断流程。
+            # Toast 空间有限，最多列出前 3 个文件，其余以"另 N 个"概括。
+            MAX_DISPLAY = 3
+            display = encoding_error_files[:MAX_DISPLAY]
+            extra = len(encoding_error_files) - MAX_DISPLAY
+            files_str = ", ".join(display)
+            if extra > 0:
+                files_str += Localizer.get().cagecsv_encoding_error_and_more.format(
+                    N=extra
+                )
+            self.emit(
+                Base.Event.TOAST,
+                {
+                    "type": Base.ToastType.WARNING,
+                    "message": Localizer.get().cagecsv_encoding_error_toast.format(
+                        FILES=files_str
+                    ),
+                },
+            )
 
     # 校验 CAGE 头结构，避免误识别普通 CSV
     def is_cage_header(self, fieldnames: list[str] | None) -> bool:
